@@ -163,26 +163,268 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 }
 
 /* ── UPLOAD AREA ── */
+/* ═════ ESTADO VAZIO (default) ═════ */
 .upload-wrap{
-  background:rgba(255,255,255,.025);border:1px dashed var(--oud);
+  background:rgba(255,255,255,.025);
+  border:1px dashed var(--oud);
   padding:48px 28px;text-align:center;margin-bottom:32px;
   transition:all .25s;cursor:pointer;
+  position:relative;
 }
-.upload-wrap.drag{background:rgba(201,168,76,.06);border-color:var(--ou);border-style:solid;}
-.upload-wrap.tem-arquivo{border-style:solid;border-color:rgba(109,191,109,.4);background:rgba(109,191,109,.04);}
-.upload-icon{margin-bottom:14px;}
-.upload-icon svg{width:38px;height:38px;stroke:var(--ou);stroke-width:1.2;fill:none;opacity:.7;}
+.upload-wrap:hover{
+  background:rgba(201,168,76,.04);
+  border-color:rgba(201,168,76,.5);
+}
+.upload-wrap.drag,
+.upload-wrap.tem-arquivo.drag{
+  background:rgba(201,168,76,.10) !important;
+  border-color:var(--ou) !important;border-style:solid !important;
+  border-width:2px !important;
+}
+.upload-wrap.drag::before{
+  content:'Solte o arquivo aqui';
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-family:'Cormorant Garamond',serif;font-size:28px;font-style:italic;
+  color:var(--ou);letter-spacing:2px;
+  background:rgba(28,42,18,.95);padding:14px 32px;
+  border:1px solid var(--ou);
+  z-index:5;pointer-events:none;
+  box-shadow:0 0 20px rgba(201,168,76,.3);
+  white-space:nowrap;
+}
+.upload-wrap.drag > *{opacity:.2;transition:opacity .2s;}
+
+/* ═════ ESTADO CARREGADO (com fechamento processado) ═════ */
+.upload-wrap.tem-arquivo{
+  border-style:solid;
+  border-color:rgba(108,191,108,.35);
+  border-left:3px solid #a8d8a8;
+  background:linear-gradient(135deg, rgba(108,191,108,.06), rgba(108,191,108,.015) 60%);
+  padding:22px 28px 22px 32px;
+  text-align:left;
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  gap:24px;
+  align-items:start;
+  cursor:default;
+  position:relative;
+  overflow:hidden;
+  animation:upload-fadein .35s ease-out;
+}
+.upload-wrap.tem-arquivo:hover{
+  background:linear-gradient(135deg, rgba(108,191,108,.09), rgba(108,191,108,.03) 60%);
+  border-color:rgba(108,191,108,.5);
+}
+/* Shimmer dourado sutil no hover */
+.upload-wrap.tem-arquivo::after{
+  content:'';position:absolute;top:0;left:-60%;width:50%;height:100%;
+  background:linear-gradient(90deg, transparent, rgba(212,180,90,.05), transparent);
+  transform:skewX(-20deg);transition:left .9s ease-out;pointer-events:none;
+}
+.upload-wrap.tem-arquivo:hover::after{left:120%;}
+
+@keyframes upload-fadein{
+  from{opacity:0;transform:translateY(-3px);}
+  to{opacity:1;transform:translateY(0);}
+}
+
+.upload-wrap.tem-arquivo .upload-icon-vazio,
+.upload-wrap.tem-arquivo .upload-titulo,
+.upload-wrap.tem-arquivo .upload-desc{display:none;}
+
+/* Ícone do estado vazio */
+.upload-icon-vazio{margin-bottom:14px;}
+.upload-icon-vazio svg{
+  width:38px;height:38px;stroke:var(--ou);stroke-width:1.2;fill:none;opacity:.7;
+}
+
+/* Ícone do estado carregado (check) — com glow e pulse de entrada */
+.upload-icon-ok{
+  display:none;
+  width:54px;height:54px;
+  border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(168,216,168,.3), rgba(108,191,108,.08));
+  border:1.5px solid rgba(168,216,168,.55);
+  align-items:center;justify-content:center;
+  flex-shrink:0;
+  margin-top:2px;
+  box-shadow:
+    0 0 0 5px rgba(108,191,108,.05),
+    0 0 18px rgba(108,191,108,.18) inset;
+  position:relative;
+}
+.upload-wrap.tem-arquivo .upload-icon-ok{
+  display:flex;
+  animation:check-pop .5s cubic-bezier(.34,1.56,.64,1);
+}
+.upload-icon-ok::before{
+  content:'';position:absolute;inset:-6px;border-radius:50%;
+  border:1px solid rgba(168,216,168,.25);
+  animation:check-halo 2.5s ease-out infinite;
+}
+@keyframes check-pop{
+  from{transform:scale(.5);opacity:0;}
+  to{transform:scale(1);opacity:1;}
+}
+@keyframes check-halo{
+  0%{transform:scale(1);opacity:.6;}
+  70%{transform:scale(1.25);opacity:0;}
+  100%{transform:scale(1.25);opacity:0;}
+}
+.upload-icon-ok svg{
+  width:26px;height:26px;
+  stroke:#cff0cf;stroke-width:2.5;fill:none;
+  filter:drop-shadow(0 0 4px rgba(168,216,168,.4));
+}
+
+/* Bloco de info (centro) */
+.upload-info-wrap{display:none;min-width:0;}
+.upload-wrap.tem-arquivo .upload-info-wrap{display:block;}
+
+.upload-info-header{
+  display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;
+}
+.upload-info-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:9px;letter-spacing:2.5px;text-transform:uppercase;
+  color:#a8d8a8;font-weight:600;
+  background:rgba(108,191,108,.13);
+  border:1px solid rgba(108,191,108,.28);
+  padding:4px 10px;
+  font-family:'Barlow',sans-serif;
+  white-space:nowrap;
+}
+.upload-info-arquivo{
+  font-family:'Cormorant Garamond',serif;
+  font-size:21px;font-weight:400;color:var(--ou2);
+  letter-spacing:.3px;margin-bottom:14px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  position:relative;
+}
+/* Filete ornamental dourado abaixo do nome (não linha cheia) */
+.upload-info-arquivo::after{
+  content:'';display:block;
+  width:42px;height:1px;
+  background:linear-gradient(90deg, var(--ou) 0%, transparent 100%);
+  margin-top:10px;
+  opacity:.6;
+}
+
+/* Stats em grid elegante */
+.upload-stats{
+  display:flex;gap:32px;flex-wrap:wrap;
+  margin-bottom:12px;
+  align-items:flex-end;
+}
+.upload-stat{
+  display:flex;flex-direction:column;gap:3px;
+}
+.upload-stat-valor{
+  font-family:'Cormorant Garamond',serif;
+  font-size:18px;font-weight:400;color:var(--ou2);
+  letter-spacing:.2px;line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.upload-stat-valor.destaque{
+  color:#cff0cf;
+  font-size:24px;
+  font-weight:500;
+  letter-spacing:.5px;
+}
+.upload-stat-label{
+  font-size:8px;letter-spacing:2.5px;text-transform:uppercase;
+  color:var(--cr3);font-family:'Barlow',sans-serif;font-weight:500;
+}
+
+/* Sub-info: data + aviso de metas */
+.upload-info-sub{
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  font-size:10px;letter-spacing:1px;
+  color:var(--cr3);font-family:'Barlow',sans-serif;
+  text-transform:uppercase;
+}
+.upload-info-sub:empty{display:none;}
+.up-data{
+  font-style:italic;text-transform:none;letter-spacing:.5px;
+  font-size:11px;font-family:'Cormorant Garamond',serif;
+  color:var(--cr2);
+}
+.up-data + .up-data::before{
+  content:'•';margin-right:12px;color:var(--oud2);
+}
+.up-aviso-metas{
+  display:inline-flex;align-items:center;gap:5px;
+  color:#e6c878;font-weight:500;cursor:pointer;
+  background:rgba(212,180,90,.12);
+  border:1px solid rgba(212,180,90,.3);
+  padding:4px 10px;
+  letter-spacing:1.2px;font-size:9px;
+  transition:all .15s;
+}
+.up-aviso-metas:hover{
+  background:rgba(212,180,90,.18);
+  border-color:var(--ou);
+  color:var(--ou2);
+}
+
+/* Texto do estado vazio */
 .upload-titulo{
   font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;
   color:var(--ou2);letter-spacing:2px;margin-bottom:6px;
 }
-.upload-desc{font-size:11px;letter-spacing:2px;color:var(--cr3);text-transform:uppercase;margin-bottom:18px;}
-.upload-arquivo-info{
-  display:none;font-size:13px;color:var(--cr2);margin-bottom:16px;
-  font-family:'Cormorant Garamond',serif;font-style:italic;
+.upload-desc{
+  font-size:11px;letter-spacing:2px;color:var(--cr3);
+  text-transform:uppercase;margin-bottom:18px;
 }
-.upload-arquivo-info.show{display:block;}
+
+/* Container dos botões */
 .upload-btn-wrap{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+.upload-wrap.tem-arquivo .upload-btn-wrap{
+  flex-direction:column;
+  align-items:flex-end;
+  gap:8px;
+  flex-shrink:0;
+  margin-top:2px;
+}
+.upload-wrap.tem-arquivo .bup{
+  font-size:9px;padding:9px 17px;letter-spacing:1.5px;
+  white-space:nowrap;min-width:160px;
+}
+.upload-wrap.tem-arquivo .bup-substituir{
+  border-color:rgba(168,216,168,.45);color:#cff0cf;
+  background:rgba(108,191,108,.10);
+}
+.upload-wrap.tem-arquivo .bup-substituir:hover{
+  background:rgba(108,191,108,.20);border-color:#cff0cf;
+  box-shadow:0 0 12px rgba(108,191,108,.15);
+}
+.upload-wrap.tem-arquivo .bup-limpar{
+  border-color:rgba(212,180,90,.18);color:var(--cr3);
+  min-width:80px;font-size:8px;
+}
+.upload-wrap.tem-arquivo .bup-limpar:hover{
+  background:rgba(191,108,108,.08);
+  border-color:rgba(191,108,108,.4);
+  color:#d8a8a8;
+}
+
+@media(max-width:760px){
+  .upload-wrap.tem-arquivo{
+    grid-template-columns:1fr;
+    text-align:center;
+    padding:22px 18px;
+    border-left-width:3px;
+  }
+  .upload-wrap.tem-arquivo .upload-icon-ok{margin:0 auto 4px;}
+  .upload-wrap.tem-arquivo .upload-info-header{justify-content:center;}
+  .upload-wrap.tem-arquivo .upload-info-arquivo::after{margin:10px auto 0;}
+  .upload-wrap.tem-arquivo .upload-stats{justify-content:center;gap:22px;}
+  .upload-wrap.tem-arquivo .upload-info-sub{justify-content:center;}
+  .upload-wrap.tem-arquivo .upload-btn-wrap{
+    flex-direction:row;justify-content:center;margin-top:14px;
+  }
+  .upload-info-arquivo{white-space:normal;}
+}
 .bup{
   background:transparent;border:1px solid var(--oud);color:var(--ou);
   padding:11px 24px;font-family:'Barlow',sans-serif;font-size:10px;
@@ -1033,6 +1275,15 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   color:var(--cr3);letter-spacing:.5px;
 }
 .h-user-email{font-style:italic;}
+.sync-status{
+  font-size:10px;letter-spacing:.5px;font-style:italic;
+  padding:3px 8px;border:1px solid transparent;
+  transition:all .25s;
+}
+.sync-status:empty{display:none;}
+.sync-status.sync-loading{color:var(--cr3);border-color:var(--oud2);}
+.sync-status.sync-ok{color:#a8d8a8;border-color:rgba(108,191,108,.25);}
+.sync-status.sync-err{color:#d8a8a8;border-color:rgba(191,108,108,.25);}
 </style>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
@@ -1045,6 +1296,16 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
     setPersistence,
     browserLocalPersistence
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+  import {
+    getFirestore,
+    doc,
+    getDoc,
+    setDoc,
+    deleteDoc,
+    collection,
+    getDocs,
+    enableIndexedDbPersistence
+  } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCogQoTSULCdC1JhTb0IUilWAIA1itBJ8U",
@@ -1057,12 +1318,25 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  // Persistência local — mantém logado mesmo após fechar o navegador
+  const db = getFirestore(app);
+
+  // Persistência local de Auth — mantém logado mesmo após fechar o navegador
   setPersistence(auth, browserLocalPersistence).catch(()=>{});
+
+  // Persistência offline do Firestore — cache local automático
+  enableIndexedDbPersistence(db).catch(err => {
+    if(err.code === 'failed-precondition'){
+      console.warn('Firestore: múltiplas abas abertas, persistência offline só funciona em uma');
+    } else if(err.code === 'unimplemented'){
+      console.warn('Firestore: navegador não suporta cache offline');
+    }
+  });
 
   // Expor pra usar no resto do código
   window._auth = auth;
   window._authFns = { signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged };
+  window._db = db;
+  window._fsFns = { doc, getDoc, setDoc, deleteDoc, collection, getDocs };
 
   // Observa estado de autenticação
   onAuthStateChanged(auth, (user) => {
@@ -1171,6 +1445,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
       </div>
     </div>
     <div class="h-user">
+      <span class="sync-status" id="sync-status"></span>
       <span class="h-user-email" id="h-user-email"></span>
       <button class="bup" style="padding:8px 16px;font-size:9px;letter-spacing:2px;" onclick="fazerLogout()">Sair</button>
     </div>
@@ -1193,17 +1468,31 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 
   <!-- ═════ UPLOAD ═════ -->
   <div class="slbl">Importar Arquivo do Sistema <span class="slbl-tag">Excel / CSV</span></div>
-  <div class="upload-wrap" id="up-wrap" onclick="document.getElementById('up-input').click()">
-    <div class="upload-icon">
+  <div class="upload-wrap" id="up-wrap" onclick="if(!this.classList.contains('tem-arquivo')) document.getElementById('up-input').click()">
+    <!-- Estado VAZIO: ícone + texto centralizado -->
+    <div class="upload-icon-vazio">
       <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
     </div>
     <div class="upload-titulo" id="up-tit">Arraste o arquivo ou clique aqui</div>
     <div class="upload-desc" id="up-desc">Aceita .xlsx, .xls, .csv do sistema de vendas</div>
-    <div class="upload-arquivo-info" id="up-info"></div>
+
+    <!-- Estado CARREGADO: ícone check + info do arquivo + botões -->
+    <div class="upload-icon-ok" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <div class="upload-info-wrap">
+      <div class="upload-info-header">
+        <span class="upload-info-badge" id="up-badge">✓ Fechamento ativo</span>
+      </div>
+      <div class="upload-info-arquivo" id="up-arquivo">—</div>
+      <div class="upload-stats" id="up-stats"></div>
+      <div class="upload-info-sub" id="up-sub"></div>
+    </div>
+
     <div class="upload-btn-wrap">
       <input type="file" id="up-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="processarArquivo(event.target.files[0])">
-      <button class="bup primario" id="btn-processar" onclick="event.stopPropagation();reprocessar()" style="display:none">Reprocessar Fechamento</button>
-      <button class="bup" onclick="event.stopPropagation();limpar()" id="btn-limpar" style="display:none">Limpar</button>
+      <button class="bup bup-substituir" id="btn-substituir" onclick="event.stopPropagation();document.getElementById('up-input').click()" style="display:none">↑ Substituir Arquivo</button>
+      <button class="bup bup-limpar" onclick="event.stopPropagation();limpar()" id="btn-limpar" style="display:none">Limpar</button>
     </div>
   </div>
 
@@ -1488,9 +1777,17 @@ async function fazerLogout(){
 }
 
 // Função chamada pelo onAuthStateChanged quando user está logado
-window.inicializarDashboardLogado = function(){
-  // Carrega o fechamento do mês atual (se existir no localStorage)
-  // Sem isso, o dashboard começava vazio toda vez que recarregava a aba
+window.inicializarDashboardLogado = async function(){
+  // Mostra status de carregamento
+  const ind = document.getElementById('sync-status');
+  if(ind){ ind.textContent = 'Sincronizando com a nuvem...'; ind.className = 'sync-loading'; }
+
+  // Carrega dados da nuvem ANTES de tentar exibir
+  await inicializarFirestoreCache();
+
+  if(ind){ ind.textContent = ''; ind.className = ''; }
+
+  // Carrega o fechamento do mês atual (do cache)
   carregarMesAtual();
   renderMetasResumo();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -1820,17 +2117,106 @@ function parseQtd(v){
   return isNaN(n) ? 1 : n;
 }
 
+// ═════════════════════════ UPLOAD UI HELPERS ═════════════════════════
+
+// Formata data ISO em texto humano (relativo se recente, absoluto se antigo)
+function fmtDataRelativa(iso){
+  if(!iso) return '';
+  try{
+    const dt = new Date(iso);
+    if(isNaN(dt)) return '';
+    const agora = new Date();
+    const diffMs = agora - dt;
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHr = Math.floor(diffMs / 3600000);
+    const diffDia = Math.floor(diffMs / 86400000);
+
+    if(diffMin < 2) return 'agora há pouco';
+    if(diffMin < 60) return `há ${diffMin} min`;
+    // Mesmo dia
+    if(dt.toDateString() === agora.toDateString()){
+      return `hoje, ${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}`;
+    }
+    // Ontem
+    const ontem = new Date(agora);
+    ontem.setDate(ontem.getDate() - 1);
+    if(dt.toDateString() === ontem.toDateString()){
+      return `ontem, ${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}`;
+    }
+    if(diffDia < 7) return `há ${diffDia} dias`;
+    // Data absoluta
+    return `${dt.getDate().toString().padStart(2,'0')}/${(dt.getMonth()+1).toString().padStart(2,'0')}`;
+  } catch(e){ return ''; }
+}
+
+// Verifica se o mês atual tem metas configuradas (com bônus > 0 em alguma categoria)
+function temMetasConfiguradas(){
+  const metas = lerMetas(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth());
+  if(!metas) return false;
+  return ORDEM_CAT.some(c => metas[c] && metas[c].bonus_meta > 0);
+}
+
+// Atualiza estado visual da área de upload (carregado vs vazio)
+function setUploadCarregado(opcoes){
+  // opcoes: { nomeArquivo, descricao, totalVendas, totalPecas, totalValor, salvoEm, tamanho }
+  const wrap = document.getElementById('up-wrap');
+  wrap.classList.add('tem-arquivo');
+
+  document.getElementById('up-arquivo').textContent = opcoes.nomeArquivo || '—';
+
+  // Stats em destaque
+  const stats = [];
+  if(opcoes.totalValor){
+    const v = opcoes.totalValor >= 1000
+      ? `R$ ${(opcoes.totalValor/1000).toLocaleString('pt-BR', {maximumFractionDigits:1})}k`
+      : `R$ ${opcoes.totalValor.toLocaleString('pt-BR', {maximumFractionDigits:0})}`;
+    stats.push(`<div class="upload-stat"><span class="upload-stat-valor destaque">${v}</span><span class="upload-stat-label">Total vendido</span></div>`);
+  }
+  if(opcoes.totalVendas){
+    stats.push(`<div class="upload-stat"><span class="upload-stat-valor">${opcoes.totalVendas.toLocaleString('pt-BR')}</span><span class="upload-stat-label">Vendas</span></div>`);
+  }
+  if(opcoes.totalPecas){
+    stats.push(`<div class="upload-stat"><span class="upload-stat-valor">${opcoes.totalPecas.toLocaleString('pt-BR')}</span><span class="upload-stat-label">Peças</span></div>`);
+  }
+  if(opcoes.tamanho){
+    stats.push(`<div class="upload-stat"><span class="upload-stat-valor" style="font-size:14px;color:var(--cr2);">${opcoes.tamanho}</span><span class="upload-stat-label">Tamanho</span></div>`);
+  }
+  document.getElementById('up-stats').innerHTML = stats.join('');
+
+  // Sub-info: data + descrição (carregado/recém processado) + aviso de metas
+  const subPartes = [];
+  if(opcoes.descricao){
+    subPartes.push(`<span class="up-data">${opcoes.descricao}</span>`);
+  }
+  if(opcoes.salvoEm){
+    const dataTxt = fmtDataRelativa(opcoes.salvoEm);
+    if(dataTxt) subPartes.push(`<span class="up-data">processado ${dataTxt}</span>`);
+  }
+  if(!temMetasConfiguradas() && (opcoes.totalVendas || opcoes.totalValor)){
+    subPartes.push(`<span class="up-aviso-metas" onclick="event.stopPropagation();abrirModalMetas()" title="Clique para configurar">⚠ Metas não configuradas</span>`);
+  }
+  document.getElementById('up-sub').innerHTML = subPartes.join('');
+
+  document.getElementById('btn-substituir').style.display = '';
+  document.getElementById('btn-limpar').style.display = '';
+}
+
+function setUploadVazio(){
+  const wrap = document.getElementById('up-wrap');
+  wrap.classList.remove('tem-arquivo');
+  document.getElementById('btn-substituir').style.display = 'none';
+  document.getElementById('btn-limpar').style.display = 'none';
+}
+
 // ═════════════════════════ PROCESSAR ARQUIVO ═════════════════════════
 function processarArquivo(file){
   if(!file) return;
   ARQUIVO_NOME = file.name;
-  document.getElementById('up-info').textContent = `📄  ${file.name}  •  ${(file.size/1024).toFixed(1)} KB`;
-  document.getElementById('up-info').classList.add('show');
-  document.getElementById('up-tit').textContent = 'Arquivo carregado';
-  document.getElementById('up-desc').textContent = 'Reprocesse ou suba outro arquivo';
-  document.getElementById('up-wrap').classList.add('tem-arquivo');
-  document.getElementById('btn-processar').style.display = '';
-  document.getElementById('btn-limpar').style.display = '';
+  setUploadCarregado({
+    nomeArquivo: file.name,
+    descricao: 'aguarde, processando...',
+    tamanho: `${(file.size/1024).toFixed(0)} KB`
+  });
 
   const reader = new FileReader();
   reader.onload = e=>{
@@ -1846,13 +2232,19 @@ function reprocessar(){
 }
 
 function limpar(){
+  // Pede confirmação antes de apagar (fechamento mensal é trabalhoso de refazer)
+  const temFechamento = RESULTADO !== null;
+  if(temFechamento){
+    const confirma = confirm(
+      'Tem certeza que quer limpar?\n\n' +
+      'O fechamento processado deste mês será apagado.\n' +
+      'Você precisará subir o arquivo novamente para reprocessar.\n\n' +
+      '(As metas e atingimentos do mês não serão afetados.)'
+    );
+    if(!confirma) return;
+  }
   ARQUIVO_BUFFER = null; ARQUIVO_NOME = ''; RESULTADO = null;
-  document.getElementById('up-info').classList.remove('show');
-  document.getElementById('up-tit').textContent = 'Arraste o arquivo ou clique aqui';
-  document.getElementById('up-desc').textContent = 'Aceita .xlsx, .xls, .csv do sistema de vendas';
-  document.getElementById('up-wrap').classList.remove('tem-arquivo');
-  document.getElementById('btn-processar').style.display = 'none';
-  document.getElementById('btn-limpar').style.display = 'none';
+  setUploadVazio();
   document.getElementById('resumo-area').style.display = 'none';
   document.getElementById('empty-area').style.display = '';
   document.getElementById('up-input').value = '';
@@ -2209,6 +2601,15 @@ function processarFormatoKigi(linhas, blocos){
 
   renderizar();
   salvarFechamentoMes();
+  // Atualiza UI de upload com totals do processamento
+  setUploadCarregado({
+    nomeArquivo: ARQUIVO_NOME,
+    descricao: 'recém processado',
+    totalVendas: totalVendas,
+    totalPecas: totalGeralPecas,
+    totalValor: totalGeralValor,
+    salvoEm: new Date().toISOString()
+  });
   toast('Fechamento processado e salvo', 'ok');
 }
 
@@ -2486,6 +2887,14 @@ function processarBuffer(){
 
     renderizar();
     salvarFechamentoMes(); // auto-save após processar
+    setUploadCarregado({
+      nomeArquivo: ARQUIVO_NOME,
+      descricao: 'recém processado',
+      totalVendas: totalVendas,
+      totalPecas: totalGeralPecas,
+      totalValor: totalGeralValor,
+      salvoEm: new Date().toISOString()
+    });
     toast('Fechamento processado e salvo', 'ok');
   } catch(e){
     console.error(e);
@@ -2680,33 +3089,234 @@ function renderizar(){
   });
 }
 
+// ═════════════════════════ FIRESTORE STORAGE ═════════════════════════
+// Camada que substitui localStorage. Funciona assim:
+//
+// LEITURA  → instantânea, do cache em memória (preenchido na inicialização)
+// ESCRITA  → cache em memória atualizado na hora + dispara save no Firestore em background
+//
+// Mantém também um backup em localStorage caso o Firestore esteja indisponível.
+const FS_CACHE = {
+  fechamentos: {},   // 'YYYY-M' -> objeto fechamento
+  metas: {},         // 'YYYY-M' -> objeto metas
+  atingimentos: {},  // 'YYYY-M' -> objeto atingimentos
+  horasExtras: {},   // 'YYYY-M' -> { Vendedora: { horas } }
+  carregado: false,
+  carregando: false
+};
+
+// Carrega TODOS os dados do Firestore pro cache em memória.
+// Chamado uma vez na inicialização do dashboard logado.
+async function inicializarFirestoreCache(){
+  if(FS_CACHE.carregado || FS_CACHE.carregando) return;
+  FS_CACHE.carregando = true;
+
+  if(!window._db || !window._fsFns){
+    console.warn('Firestore SDK não carregou — usando localStorage como fallback');
+    FS_CACHE.carregando = false;
+    return;
+  }
+
+  const { collection, getDocs } = window._fsFns;
+  const db = window._db;
+
+  try {
+    // Carrega todas as 4 coleções em paralelo
+    const [snapFech, snapMetas, snapAting, snapHE] = await Promise.all([
+      getDocs(collection(db, 'fechamentos')),
+      getDocs(collection(db, 'metas')),
+      getDocs(collection(db, 'atingimentos')),
+      getDocs(collection(db, 'horasExtras'))
+    ]);
+
+    snapFech.forEach(d => { FS_CACHE.fechamentos[d.id] = d.data(); });
+    snapMetas.forEach(d => { FS_CACHE.metas[d.id] = d.data(); });
+    snapAting.forEach(d => { FS_CACHE.atingimentos[d.id] = d.data(); });
+    snapHE.forEach(d => { FS_CACHE.horasExtras[d.id] = d.data(); });
+
+    FS_CACHE.carregado = true;
+    console.log('Firestore: cache carregado',
+      Object.keys(FS_CACHE.fechamentos).length, 'fechamentos,',
+      Object.keys(FS_CACHE.metas).length, 'metas,',
+      Object.keys(FS_CACHE.atingimentos).length, 'atingimentos,',
+      Object.keys(FS_CACHE.horasExtras).length, 'horas extras');
+
+    // Migração silenciosa: se há dados no localStorage que não estão no Firestore,
+    // sobe pro Firestore. Acontece UMA VEZ por dado.
+    await migrarLocalStorageParaFirestore();
+
+  } catch(e){
+    console.error('Erro ao carregar Firestore:', e);
+    toast('Erro ao conectar com a nuvem — usando dados locais', 'er');
+  } finally {
+    FS_CACHE.carregando = false;
+  }
+}
+
+// Migra dados antigos do localStorage pro Firestore (uma vez)
+async function migrarLocalStorageParaFirestore(){
+  const { setDoc, doc } = window._fsFns;
+  const db = window._db;
+  let migrados = 0;
+
+  for(let i = 0; i < localStorage.length; i++){
+    const chave = localStorage.key(i);
+    if(!chave) continue;
+
+    let colecao = null, idDoc = null, body = null;
+    try {
+      // loretto-fech-YYYY-M
+      const mFech = chave.match(/^loretto-fech-(\d{4})-(\d{1,2})$/);
+      if(mFech){
+        idDoc = `${mFech[1]}-${mFech[2]}`;
+        colecao = 'fechamentos';
+      }
+      // loretto-metas-YYYY-M
+      const mMetas = chave.match(/^loretto-metas-(\d{4})-(\d{1,2})$/);
+      if(mMetas){
+        idDoc = `${mMetas[1]}-${mMetas[2]}`;
+        colecao = 'metas';
+      }
+      // loretto-ating-YYYY-M
+      const mAting = chave.match(/^loretto-ating-(\d{4})-(\d{1,2})$/);
+      if(mAting){
+        idDoc = `${mAting[1]}-${mAting[2]}`;
+        colecao = 'atingimentos';
+      }
+      // loretto-he-YYYY-M
+      const mHE = chave.match(/^loretto-he-(\d{4})-(\d{1,2})$/);
+      if(mHE){
+        idDoc = `${mHE[1]}-${mHE[2]}`;
+        colecao = 'horasExtras';
+      }
+
+      if(!colecao || !idDoc) continue;
+
+      // Já existe no Firestore? Skip
+      if(FS_CACHE[colecao][idDoc]) continue;
+
+      const raw = localStorage.getItem(chave);
+      if(!raw) continue;
+      body = JSON.parse(raw);
+
+      // Sobe pro Firestore
+      await setDoc(doc(db, colecao, idDoc), body);
+      FS_CACHE[colecao][idDoc] = body;
+      migrados++;
+
+    } catch(e){
+      console.warn('Falha ao migrar', chave, e);
+    }
+  }
+
+  if(migrados > 0){
+    console.log(`Firestore: ${migrados} dado(s) antigo(s) migrado(s) do navegador para a nuvem`);
+    toast(`${migrados} dado${migrados>1?'s':''} antigo${migrados>1?'s':''} sincronizado${migrados>1?'s':''} com a nuvem`, 'ok');
+  }
+}
+
+// Salva um documento no Firestore em background (fire-and-forget)
+function fsSalvar(colecao, id, dados, opcoes){
+  // Atualiza cache local IMEDIATAMENTE (síncrono)
+  FS_CACHE[colecao][id] = dados;
+  // Backup no localStorage também (caso o Firestore falhe)
+  try {
+    let chaveLS = '';
+    if(colecao === 'fechamentos') chaveLS = `loretto-fech-${id}`;
+    else if(colecao === 'metas') chaveLS = `loretto-metas-${id}`;
+    else if(colecao === 'atingimentos') chaveLS = `loretto-ating-${id}`;
+    else if(colecao === 'horasExtras') chaveLS = `loretto-he-${id}`;
+    if(chaveLS) localStorage.setItem(chaveLS, JSON.stringify(dados));
+  } catch(e){}
+
+  // Salva no Firestore em background
+  if(!window._db || !window._fsFns) return;
+  const { setDoc, doc } = window._fsFns;
+  const silencioso = opcoes && opcoes.silencioso;
+
+  setDoc(doc(window._db, colecao, id), dados)
+    .then(() => {
+      if(!silencioso){
+        // Indicador discreto no header
+        const ind = document.getElementById('sync-status');
+        if(ind){
+          ind.textContent = '✓ Salvo na nuvem';
+          ind.className = 'sync-ok';
+          setTimeout(() => { if(ind) ind.textContent = ''; }, 2500);
+        }
+      }
+    })
+    .catch(e => {
+      console.error(`Erro ao salvar ${colecao}/${id}:`, e);
+      const ind = document.getElementById('sync-status');
+      if(ind){
+        ind.textContent = '⚠ Erro ao salvar na nuvem';
+        ind.className = 'sync-err';
+      }
+    });
+}
+
+// Apaga um documento do Firestore em background
+function fsApagar(colecao, id){
+  delete FS_CACHE[colecao][id];
+  try {
+    let chaveLS = '';
+    if(colecao === 'fechamentos') chaveLS = `loretto-fech-${id}`;
+    else if(colecao === 'metas') chaveLS = `loretto-metas-${id}`;
+    else if(colecao === 'atingimentos') chaveLS = `loretto-ating-${id}`;
+    else if(colecao === 'horasExtras') chaveLS = `loretto-he-${id}`;
+    if(chaveLS) localStorage.removeItem(chaveLS);
+  } catch(e){}
+
+  if(!window._db || !window._fsFns) return;
+  const { deleteDoc, doc } = window._fsFns;
+  deleteDoc(doc(window._db, colecao, id)).catch(e => {
+    console.error(`Erro ao apagar ${colecao}/${id}:`, e);
+  });
+}
+
+// Lê do cache em memória (síncrono, super rápido)
+function fsLer(colecao, id){
+  if(FS_CACHE[colecao][id]) return FS_CACHE[colecao][id];
+  // Fallback pra localStorage se o Firestore não carregou ainda
+  try {
+    let chaveLS = '';
+    if(colecao === 'fechamentos') chaveLS = `loretto-fech-${id}`;
+    else if(colecao === 'metas') chaveLS = `loretto-metas-${id}`;
+    else if(colecao === 'atingimentos') chaveLS = `loretto-ating-${id}`;
+    else if(colecao === 'horasExtras') chaveLS = `loretto-he-${id}`;
+    if(chaveLS){
+      const raw = localStorage.getItem(chaveLS);
+      if(raw) return JSON.parse(raw);
+    }
+  } catch(e){}
+  return null;
+}
+
+// Lista todos os IDs de uma coleção (pra histórico, comparativo etc)
+function fsListar(colecao){
+  return Object.keys(FS_CACHE[colecao] || {});
+}
+
 // ═════════════════════════ HORAS EXTRAS ═════════════════════════
-function chaveHE(){
-  return `loretto-he-${DATA_ATUAL.getFullYear()}-${DATA_ATUAL.getMonth()+1}`;
+function idHE(){
+  return `${DATA_ATUAL.getFullYear()}-${DATA_ATUAL.getMonth()+1}`;
 }
 function lerHorasExtras(vendedora){
-  try{
-    const raw = localStorage.getItem(chaveHE());
-    if(!raw) return {horas:0, total:0};
-    const obj = JSON.parse(raw);
-    const r = obj[vendedora];
-    if(r === undefined || r === null) return {horas:0, total:0};
-    // Compat: versão antiga era {horas, valorHora, total} ou número
-    if(typeof r === 'number') return {horas:0, total:0};
-    return {horas: Number(r.horas || 0), total: 0};
-  } catch(e){ return {horas:0, total:0}; }
+  const obj = fsLer('horasExtras', idHE()) || {};
+  const r = obj[vendedora];
+  if(r === undefined || r === null) return {horas:0, total:0};
+  if(typeof r === 'number') return {horas:0, total:0};
+  return {horas: Number(r.horas || 0), total: 0};
 }
 function salvarHorasExtras(vendedora, horas){
-  try{
-    const raw = localStorage.getItem(chaveHE());
-    const obj = raw ? JSON.parse(raw) : {};
-    if(!horas || horas === 0){
-      delete obj[vendedora];
-    } else {
-      obj[vendedora] = {horas: horas};
-    }
-    localStorage.setItem(chaveHE(), JSON.stringify(obj));
-  } catch(e){ console.warn('localStorage indisponível', e); }
+  const obj = fsLer('horasExtras', idHE()) || {};
+  if(!horas || horas === 0){
+    delete obj[vendedora];
+  } else {
+    obj[vendedora] = {horas: horas};
+  }
+  fsSalvar('horasExtras', idHE(), obj);
 }
 // Parser flexível: "100", "100,50", "1.234,56"
 function parseNumBR(raw){
@@ -2729,18 +3339,19 @@ function atualizarHorasExtras(vendedora, valorRaw){
 }
 
 // ═════════════════════════ SALVAMENTO DO FECHAMENTO ═════════════════════════
-function chaveFech(ano, mes){
+function idFech(ano, mes){
+  return `${ano}-${mes+1}`;
+}
+function chaveFech(ano, mes){  // mantida pra compat com código antigo
   return `loretto-fech-${ano}-${mes+1}`;
 }
 function chaveMesTemDados(ano, mes){
-  try{
-    return localStorage.getItem(chaveFech(ano, mes)) !== null;
-  } catch(e){ return false; }
+  return fsLer('fechamentos', idFech(ano, mes)) !== null;
 }
 function salvarFechamentoMes(){
   if(!RESULTADO) return;
   try{
-    // Serializa auditoria (Map -> Object)
+    // Serializa auditoria (Map -> Array, JSON-safe)
     let auditoriaSer = null;
     if(RESULTADO.auditoria){
       auditoriaSer = {...RESULTADO.auditoria};
@@ -2764,21 +3375,19 @@ function salvarFechamentoMes(){
       arquivoNome: ARQUIVO_NOME,
       salvoEm: new Date().toISOString()
     };
-    localStorage.setItem(chaveFech(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()), JSON.stringify(dados));
+    fsSalvar('fechamentos', idFech(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()), dados);
     atualizarMesUI(); // mostra a bolinha verde
   } catch(e){
     console.warn('Erro ao salvar fechamento', e);
-    toast('Erro ao salvar fechamento (espaço cheio?)', 'er');
+    toast('Erro ao salvar fechamento', 'er');
   }
 }
 function carregarFechamentoMes(){
   try{
-    const raw = localStorage.getItem(chaveFech(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()));
-    if(!raw) return false;
-    const dados = JSON.parse(raw);
+    const dados = fsLer('fechamentos', idFech(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()));
+    if(!dados) return false;
 
     // ── MIGRAÇÃO: fechamentos antigos não têm sapatos_encomenda ──
-    // Adiciona com {qtd:0, valor:0} pra não quebrar UI
     if(dados.result){
       VENDEDORAS.forEach(v=>{
         if(dados.result[v]){
@@ -2791,24 +3400,23 @@ function carregarFechamentoMes(){
       });
     }
 
-    // Desserializa auditoria (Object -> Map)
+    // Desserializa auditoria (Array -> Map)
     let auditoria = dados.auditoria;
     if(auditoria && Array.isArray(auditoria.produtosSemCategoria)){
       auditoria.produtosSemCategoria = new Map(auditoria.produtosSemCategoria);
     }
 
-    // Restaura horas extras na chave separada (caso tenha sido perdida)
+    // Restaura horas extras (caso tenham sido perdidas em outro silo)
     if(dados.horasExtras && typeof dados.horasExtras === 'object'){
-      const heAtual = localStorage.getItem(chaveHE());
+      const heAtual = fsLer('horasExtras', idHE());
       if(!heAtual){
-        // Reconstroi formato {Vendedora: {horas: N}}
         const restore = {};
         Object.keys(dados.horasExtras).forEach(v=>{
           const h = Number(dados.horasExtras[v] || 0);
           if(h > 0) restore[v] = {horas: h};
         });
         if(Object.keys(restore).length > 0){
-          localStorage.setItem(chaveHE(), JSON.stringify(restore));
+          fsSalvar('horasExtras', idHE(), restore, {silencioso: true});
         }
       }
     }
@@ -2833,8 +3441,8 @@ function excluirFechamentoMes(){
   const ano = DATA_ATUAL.getFullYear();
   if(!confirm(`Excluir fechamento de ${mes}/${ano}?\n\nEsta ação não pode ser desfeita.`)) return;
   try{
-    localStorage.removeItem(chaveFech(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()));
-    localStorage.removeItem(chaveHE());
+    fsApagar('fechamentos', idFech(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()));
+    fsApagar('horasExtras', idHE());
     RESULTADO = null;
     document.getElementById('resumo-area').style.display = 'none';
     document.getElementById('empty-area').style.display = '';
@@ -2847,13 +3455,12 @@ function carregarMesAtual(){
   // Tenta carregar fechamento salvo do mês atual
   if(carregarFechamentoMes()){
     renderizar();
-    document.getElementById('up-info').textContent = `📁  ${ARQUIVO_NOME}  •  carregado do histórico`;
-    document.getElementById('up-info').classList.add('show');
-    document.getElementById('up-tit').textContent = 'Fechamento carregado';
-    document.getElementById('up-desc').textContent = 'Suba um arquivo para sobrescrever';
-    document.getElementById('up-wrap').classList.add('tem-arquivo');
-    document.getElementById('btn-limpar').style.display = '';
-    document.getElementById('btn-processar').style.display = ARQUIVO_BUFFER ? '' : 'none';
+    setUploadCarregado({
+      nomeArquivo: ARQUIVO_NOME,
+      descricao: 'carregado do histórico',
+      totalVendas: RESULTADO?.totalVendas,
+      totalPecas: RESULTADO?.totalGeralPecas
+    });
   } else {
     // Sem fechamento salvo — limpa visual
     if(RESULTADO) RESULTADO = null;
@@ -2865,12 +3472,7 @@ function carregarMesAtual(){
   }
 }
 function limparUploadUI(){
-  document.getElementById('up-info').classList.remove('show');
-  document.getElementById('up-tit').textContent = 'Arraste o arquivo ou clique aqui';
-  document.getElementById('up-desc').textContent = 'Aceita .xlsx, .xls, .csv do sistema de vendas';
-  document.getElementById('up-wrap').classList.remove('tem-arquivo');
-  document.getElementById('btn-processar').style.display = 'none';
-  document.getElementById('btn-limpar').style.display = 'none';
+  setUploadVazio();
   document.getElementById('up-input').value = '';
 }
 
@@ -3136,17 +3738,18 @@ function renderYTD(){
 function coletarTodosFechamentos(){
   // Retorna lista ordenada de {ano, mes, dados, horasExtras}
   const lista = [];
-  const prefix = 'loretto-fech-';
-  for(let i = 0; i < localStorage.length; i++){
-    const key = localStorage.key(i);
-    if(!key || !key.startsWith(prefix)) continue;
+  const ids = fsListar('fechamentos');
+
+  for(const id of ids){
     try{
-      const partes = key.replace(prefix,'').split('-');
+      const partes = id.split('-');
+      if(partes.length < 2) continue;
       const ano = parseInt(partes[0], 10);
       const mes = parseInt(partes[1], 10) - 1; // 0-indexed
-      const dados = JSON.parse(localStorage.getItem(key));
-      const heRaw = localStorage.getItem(`loretto-he-${ano}-${mes+1}`);
-      const heObj = heRaw ? JSON.parse(heRaw) : {};
+      if(isNaN(ano) || isNaN(mes)) continue;
+      const dados = fsLer('fechamentos', id);
+      if(!dados) continue;
+      const heObj = fsLer('horasExtras', id) || {};
       const horasExtras = {};
       Object.keys(heObj).forEach(v=>{
         const h = heObj[v];
@@ -3154,7 +3757,7 @@ function coletarTodosFechamentos(){
         else horasExtras[v] = {horas:h.horas||0, valorHora:h.valorHora||0, total:(h.horas||0)*(h.valorHora||0)};
       });
       lista.push({ano, mes, dados, horasExtras});
-    } catch(e){ console.warn('Erro ao ler', key, e); }
+    } catch(e){ console.warn('Erro ao ler fechamento', id, e); }
   }
   // Ordena cronologicamente
   lista.sort((a,b)=>{
@@ -3712,15 +4315,17 @@ const META_DEFAULT = {
   bonus_ultrameta_global: 100
 };
 
-function chaveMetas(ano, mes){
+function idMetas(ano, mes){
+  return `${ano}-${mes+1}`;
+}
+function chaveMetas(ano, mes){  // mantida pra compat
   return `loretto-metas-${ano}-${mes+1}`;
 }
 
 function lerMetas(ano, mes){
   try{
-    const raw = localStorage.getItem(chaveMetas(ano, mes));
-    if(!raw) return null;
-    const dados = JSON.parse(raw);
+    const dados = fsLer('metas', idMetas(ano, mes));
+    if(!dados) return null;
 
     // ── MIGRAÇÃO ──
     // Formato antigo: cada categoria tinha bonus_ultrameta separado.
@@ -3738,18 +4343,16 @@ function lerMetas(ano, mes){
         mudou = true;
       }
     });
-    // Se não tinha global mas tinha por categoria, soma tudo como bonus_ultrameta_global
     if(temBonusUltraAntigo && !('bonus_ultrameta_global' in dados)){
       dados.bonus_ultrameta_global = somaBonusUltra;
       mudou = true;
     }
-    // Remove campo "extra" antigo (meta extra removida)
     if('extra' in dados){
       delete dados.extra;
       mudou = true;
     }
     if(mudou){
-      try{ localStorage.setItem(chaveMetas(ano, mes), JSON.stringify(dados)); } catch(e){}
+      fsSalvar('metas', idMetas(ano, mes), dados, {silencioso: true});
     }
 
     return dados;
@@ -3758,7 +4361,7 @@ function lerMetas(ano, mes){
 
 function salvarMetas(ano, mes, metas){
   try{
-    localStorage.setItem(chaveMetas(ano, mes), JSON.stringify(metas));
+    fsSalvar('metas', idMetas(ano, mes), metas);
     return true;
   } catch(e){ return false; }
 }
@@ -3846,21 +4449,20 @@ function renderBonusBloco(vendedora, bonus, metas, dadosVendedora){
 // ═════════════════════════ ATINGIMENTOS MANUAIS DE BÔNUS ═════════════════════════
 // Estrutura NOVA (meta de equipe): { [categoria]: 'nao' | 'meta' | 'ultra' }
 // Quando a equipe atinge a meta de uma categoria, TODAS as vendedoras recebem o bônus.
-function chaveAting(ano, mes){
+function idAting(ano, mes){
+  return `${ano}-${mes+1}`;
+}
+function chaveAting(ano, mes){  // mantida pra compat
   return `loretto-ating-${ano}-${mes+1}`;
 }
 function lerAtingimentos(ano, mes){
   try{
-    const raw = localStorage.getItem(chaveAting(ano, mes));
-    if(!raw) return {};
-    const dados = JSON.parse(raw);
+    const dados = fsLer('atingimentos', idAting(ano, mes));
+    if(!dados) return {};
     // Migration: se for o formato antigo (por vendedora), converte
-    // Estrutura antiga: {Jhennifer: {sapatos: 'meta'}, ...}
-    // Estrutura nova: {sapatos: 'meta', cintos: 'ultra', ...}
     const chaves = Object.keys(dados);
     const ehFormatoAntigo = chaves.length > 0 && chaves.some(k => VENDEDORAS.includes(k));
     if(ehFormatoAntigo){
-      // Migração: pega o "melhor" estado por categoria entre todas as vendedoras
       const novo = {};
       ORDEM_CAT.forEach(c=>{
         let melhor = 'nao';
@@ -3871,15 +4473,14 @@ function lerAtingimentos(ano, mes){
         });
         if(melhor !== 'nao') novo[c] = melhor;
       });
-      // Salva já no formato novo
-      try{ localStorage.setItem(chaveAting(ano, mes), JSON.stringify(novo)); } catch(e){}
+      fsSalvar('atingimentos', idAting(ano, mes), novo, {silencioso: true});
       return novo;
     }
     return dados;
   } catch(e){ return {}; }
 }
 function salvarAtingimentos(ano, mes, dados){
-  try{ localStorage.setItem(chaveAting(ano, mes), JSON.stringify(dados)); } catch(e){}
+  fsSalvar('atingimentos', idAting(ano, mes), dados);
 }
 function ciclarAtingimento(categoria){
   const ano = DATA_ATUAL.getFullYear(), mes = DATA_ATUAL.getMonth();

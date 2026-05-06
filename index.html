@@ -1814,6 +1814,17 @@ function trocarTab(tab){
 
 const VENDEDORAS = ['Jhennifer', 'Ialey', 'Michelly', 'Natália'];
 
+// Cache em memória dos dados do Firestore.
+// Declarado AQUI no topo pra evitar TDZ (funções chamadas durante init podem usar isso)
+const FS_CACHE = {
+  fechamentos: {},   // 'YYYY-M' -> objeto fechamento
+  metas: {},         // 'YYYY-M' -> objeto metas
+  atingimentos: {},  // 'YYYY-M' -> objeto atingimentos
+  horasExtras: {},   // 'YYYY-M' -> { Vendedora: { horas } }
+  carregado: false,
+  carregando: false
+};
+
 // Nomes que aparecem no Kigi mas NÃO são vendedoras (gestão, ex-vendedoras, vendedor genérico)
 // Aparecem por questões operacionais — não geram alarme na auditoria
 const NAO_VENDEDORAS_CONHECIDAS = ['Edson', 'Gregory', 'Joice', 'Larissa Gomes Vieira', 'Larissa', 'Loretto Scarpa', 'Yuri'];
@@ -3095,15 +3106,7 @@ function renderizar(){
 // LEITURA  → instantânea, do cache em memória (preenchido na inicialização)
 // ESCRITA  → cache em memória atualizado na hora + dispara save no Firestore em background
 //
-// Mantém também um backup em localStorage caso o Firestore esteja indisponível.
-const FS_CACHE = {
-  fechamentos: {},   // 'YYYY-M' -> objeto fechamento
-  metas: {},         // 'YYYY-M' -> objeto metas
-  atingimentos: {},  // 'YYYY-M' -> objeto atingimentos
-  horasExtras: {},   // 'YYYY-M' -> { Vendedora: { horas } }
-  carregado: false,
-  carregando: false
-};
+// (FS_CACHE em si está declarado lá no topo pra evitar problema de ordem)
 
 // Carrega TODOS os dados do Firestore pro cache em memória.
 // Chamado uma vez na inicialização do dashboard logado.

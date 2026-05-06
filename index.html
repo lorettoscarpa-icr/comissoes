@@ -1489,6 +1489,9 @@ async function fazerLogout(){
 
 // Função chamada pelo onAuthStateChanged quando user está logado
 window.inicializarDashboardLogado = function(){
+  // Carrega o fechamento do mês atual (se existir no localStorage)
+  // Sem isso, o dashboard começava vazio toda vez que recarregava a aba
+  carregarMesAtual();
   renderMetasResumo();
   window.scrollTo({top:0, behavior:'smooth'});
 };

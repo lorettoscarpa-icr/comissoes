@@ -1577,10 +1577,10 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
     <div class="exp-wrap">
       <div class="exp-tit">Downloads do Mês</div>
       <div class="exp-btns">
-        <button class="bup primario" onclick="exportarExcel()">Excel — Geral do Mês</button>
-        <button class="bup" onclick="exportarPDF()">PDF — Geral do Mês</button>
-        <button class="bup" onclick="exportarPorVendedora()">Excel — Uma Aba por Vendedora</button>
+        <button class="bup primario" onclick="exportarExcel()">Excel — Contabilidade</button>
         <button class="bup" onclick="exportarCalendarioVendas()">Excel — Calendário de Vendas</button>
+        <button class="bup" onclick="exportarPorVendedora()">Excel — Uma Aba por Vendedora</button>
+        <button class="bup" onclick="exportarPDF()">PDF — Resumo Geral</button>
       </div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--oud2);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div style="font-size:10px;letter-spacing:1.5px;color:var(--cr3);text-transform:uppercase;">
@@ -2510,17 +2510,19 @@ function processarFormatoKigi(linhas, blocos){
       }
 
       // Hash pra detectar duplicatas — inclui data para reduzir falsos positivos
-      // (mesma vendedora vendendo o mesmo produto em dias diferentes não é duplicata)
-      let dataKey = '';
-      if(colMap.data !== undefined){
-        const dataRaw = lin[colMap.data];
-        if(dataRaw instanceof Date) dataKey = dataRaw.toISOString().slice(0,10);
-        else if(typeof dataRaw === 'number') dataKey = String(dataRaw);
-        else if(typeof dataRaw === 'string') dataKey = dataRaw;
+      // Meias são excluídas porque são vendidas em volume (mesmo SKU várias vezes/dia)
+      if(cat !== 'meias'){
+        let dataKey = '';
+        if(colMap.data !== undefined){
+          const dataRaw = lin[colMap.data];
+          if(dataRaw instanceof Date) dataKey = dataRaw.toISOString().slice(0,10);
+          else if(typeof dataRaw === 'number') dataKey = String(dataRaw);
+          else if(typeof dataRaw === 'string') dataKey = dataRaw;
+        }
+        const hash = `${vend}|${cat}|${produtoRaw}|${qtd}|${valor}|${dataKey}`;
+        if(!hashLinhas.has(hash)) hashLinhas.set(hash, []);
+        hashLinhas.get(hash).push({produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, data: dataKey});
       }
-      const hash = `${vend}|${cat}|${produtoRaw}|${qtd}|${valor}|${dataKey}`;
-      if(!hashLinhas.has(hash)) hashLinhas.set(hash, []);
-      hashLinhas.get(hash).push({produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, data: dataKey});
     }
   }
 
@@ -2794,8 +2796,8 @@ function processarBuffer(){
         });
       }
 
-      // ── AUDITORIA: Hash para duplicatas ──
-      if(vend && qtd > 0 && valor > 0){
+      // ── AUDITORIA: Hash para duplicatas (exclui meias — vendidas em volume) ──
+      if(vend && qtd > 0 && valor > 0 && cat !== 'meias'){
         const hash = `${vend}|${normalizar(produtoRaw)}|${qtd}|${valor}`;
         if(!hashLinhas.has(hash)) hashLinhas.set(hash, []);
         hashLinhas.get(hash).push({produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend});
@@ -3488,12 +3490,12 @@ function renderAuditoria(){
   const a = RESULTADO.auditoria;
 
   // Conta total de problemas
+  // Valores R$ 0 + Anomalias agora ficam juntos como "Valores Atípicos" (warn)
   const problemas = [
     {tipo:'erro', count: a.vendasSemVendedora.length, render:'vendasSemVendedora'},
-    {tipo:'erro', count: a.valorZeroQtdPositiva.length, render:'valorZero'},
     {tipo:'erro', count: a.qtdZeroValorPositivo.length, render:'qtdZero'},
+    {tipo:'warn', count: a.valorZeroQtdPositiva.length + a.anomaliasValor.length, render:'valoresAtipicos'},
     {tipo:'warn', count: a.produtosSemCategoria.size, render:'semCategoria'},
-    {tipo:'warn', count: a.anomaliasValor.length, render:'anomalias'},
     {tipo:'warn', count: a.nomesVendedoraAprox.length, render:'nomesAprox'},
     {tipo:'warn', count: a.possiveisDuplicatas.length, render:'duplicatas'},
     {tipo:'info', count: (a.lancamentosGestao || []).length, render:'gestao'}
@@ -3577,18 +3579,46 @@ function renderAuditoria(){
     `);
   }
 
-  // Valor zerado, qtd positiva
-  if(a.valorZeroQtdPositiva.length){
-    const rows = a.valorZeroQtdPositiva.slice(0,12).map(v=>`
-      <tr><td>${v.produto}</td><td>${v.vendedora||'—'}</td><td class="tnum">${fmtInt(v.qtd)}</td></tr>
-    `).join('');
-    html += secAud('val-zero', `Vendas com valor R$ 0`, a.valorZeroQtdPositiva.length, 'erro', `
-      <p>Quantidade vendida mas valor zerado. Provável erro de digitação no sistema, ou bonificação não marcada como tal.</p>
-      <table><thead><tr><th>Produto</th><th>Vendedora</th><th class="tnum">Qtd</th></tr></thead><tbody>${rows}</tbody></table>
+  // Valores atípicos (combinado: vendas R$ 0 + valores fora do padrão da categoria)
+  const valoresAtipicos = [
+    ...a.valorZeroQtdPositiva.map(v => ({...v, tipoAnomalia: 'zero'})),
+    ...a.anomaliasValor.map(v => ({...v, tipoAnomalia: 'desvio'}))
+  ];
+  if(valoresAtipicos.length){
+    // Ordena: R$ 0 primeiro, depois maiores desvios
+    valoresAtipicos.sort((x, y) => {
+      if(x.tipoAnomalia === 'zero' && y.tipoAnomalia !== 'zero') return -1;
+      if(y.tipoAnomalia === 'zero' && x.tipoAnomalia !== 'zero') return 1;
+      return Math.abs(y.desvio || 0) - Math.abs(x.desvio || 0);
+    });
+    const rows = valoresAtipicos.slice(0, 15).map(an => {
+      if(an.tipoAnomalia === 'zero'){
+        return `<tr>
+          <td>${an.produto}</td>
+          <td>${NOME_CAT[an.categoria] || an.categoria || '—'}</td>
+          <td>${an.vendedora || '—'}</td>
+          <td class="tnum" style="color:#e09e9a;">R$ 0,00</td>
+          <td class="tnum" style="color:#e09e9a;">⚠ valor zerado</td>
+        </tr>`;
+      } else {
+        const sinal = an.tipo === 'alto' ? '↑' : '↓';
+        const cor = an.tipo === 'alto' ? '#e09e9a' : '#d4b45a';
+        return `<tr>
+          <td>${an.produto}</td>
+          <td>${NOME_CAT[an.cat] || an.cat || '—'}</td>
+          <td>${an.vendedora || '—'}</td>
+          <td class="tnum">${fmtBRL(an.valorUnitario)}</td>
+          <td class="tnum" style="color:${cor};">${sinal} vs ${fmtBRL(an.mediaCategoria)}</td>
+        </tr>`;
+      }
+    }).join('');
+    html += secAud('valores-atipicos', `Valores atípicos`, valoresAtipicos.length, 'warn', `
+      <p>Vendas com valor R$ 0 (provável erro de digitação ou bonificação) ou com valor unitário muito diferente da média da categoria (descontos atípicos, premium ou erro de cadastro).</p>
+      <table><thead><tr><th>Produto</th><th>Categoria</th><th>Vendedora</th><th class="tnum">Valor Unit.</th><th class="tnum">Observação</th></tr></thead><tbody>${rows}</tbody></table>
     `);
   }
 
-  // Quantidade zero, valor positivo
+  // Quantidade zero, valor positivo (continua separado — é caso bem específico/raro)
   if(a.qtdZeroValorPositivo.length){
     const rows = a.qtdZeroValorPositivo.slice(0,12).map(v=>`
       <tr><td>${v.produto}</td><td>${v.vendedora||'—'}</td><td class="tnum">${fmtBRL(v.valor)}</td></tr>
@@ -3596,26 +3626,6 @@ function renderAuditoria(){
     html += secAud('qtd-zero', `Vendas com quantidade 0`, a.qtdZeroValorPositivo.length, 'erro', `
       <p>Valor preenchido mas quantidade zerada. Verificar no sistema de origem.</p>
       <table><thead><tr><th>Produto</th><th>Vendedora</th><th class="tnum">Valor</th></tr></thead><tbody>${rows}</tbody></table>
-    `);
-  }
-
-  // Anomalias estatísticas
-  if(a.anomaliasValor.length){
-    const rows = a.anomaliasValor.sort((x,y)=>Math.abs(y.desvio)-Math.abs(x.desvio)).slice(0,12).map(an=>{
-      const sinal = an.tipo === 'alto' ? '↑' : '↓';
-      const cor = an.tipo === 'alto' ? '#e09e9a' : '#d4b45a';
-      return `
-      <tr>
-        <td>${an.produto}</td>
-        <td>${NOME_CAT[an.cat]||an.cat}</td>
-        <td>${an.vendedora||'—'}</td>
-        <td class="tnum">${fmtBRL(an.valorUnitario)}</td>
-        <td class="tnum" style="color:${cor};">${sinal} vs ${fmtBRL(an.mediaCategoria)}</td>
-      </tr>`;
-    }).join('');
-    html += secAud('anomalias', `Valores fora do padrão da categoria`, a.anomaliasValor.length, 'warn', `
-      <p>Valor unitário muito diferente da média da categoria. Pode ser produto premium/promoção legítimo, ou erro de digitação.</p>
-      <table><thead><tr><th>Produto</th><th>Categoria</th><th>Vendedora</th><th class="tnum">Valor Unit.</th><th class="tnum">Desvio</th></tr></thead><tbody>${rows}</tbody></table>
     `);
   }
 

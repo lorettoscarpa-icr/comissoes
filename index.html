@@ -266,6 +266,40 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   color:var(--cr2);letter-spacing:.3px;
 }
 .tab td.tcat{font-weight:500;color:var(--cr);font-size:12px;letter-spacing:1px;text-transform:uppercase;}
+
+/* ─── Sapatos de Encomenda: chips elegantes ─── */
+.se-qtd-wrap{
+  display:inline-flex;flex-direction:column;align-items:flex-end;gap:6px;
+}
+.se-total{
+  font-size:inherit;color:inherit;font-family:'Cormorant Garamond',serif;
+}
+.se-chips{
+  display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;
+}
+.se-chip{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:9px;letter-spacing:1.2px;text-transform:uppercase;
+  padding:3px 8px;font-weight:500;
+  font-family:'Barlow',sans-serif;line-height:1;
+  border-radius:0;
+  white-space:nowrap;
+}
+.se-chip-dot{
+  width:5px;height:5px;border-radius:50%;display:inline-block;
+}
+.se-chip-ok{
+  background:rgba(108,191,108,.12);
+  color:#a8d8a8;
+  border:1px solid rgba(108,191,108,.3);
+}
+.se-chip-ok .se-chip-dot{background:#6dbf6d;}
+.se-chip-pend{
+  background:rgba(212,180,90,.12);
+  color:var(--ou2);
+  border:1px solid rgba(212,180,90,.3);
+}
+.se-chip-pend .se-chip-dot{background:var(--ou);}
 .tab td.tnum{
   text-align:right;font-family:'Cormorant Garamond',serif;font-size:18px;
   color:var(--ou2);font-weight:300;
@@ -701,6 +735,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   padding:2px 9px;font-size:10px;border-radius:10px;letter-spacing:0;
 }
 .aud-badge.warning{background:rgba(212,180,90,.2);color:var(--ou2);}
+.aud-badge.info{background:rgba(120,160,180,.2);color:#a8c5d8;}
 .aud-sec-toggle{color:var(--cr3);font-size:12px;transition:transform .2s;}
 .aud-sec.open .aud-sec-toggle{transform:rotate(180deg);}
 .aud-sec-body{
@@ -1256,6 +1291,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
         <button class="bup primario" onclick="exportarExcel()">Excel — Geral do Mês</button>
         <button class="bup" onclick="exportarPDF()">PDF — Geral do Mês</button>
         <button class="bup" onclick="exportarPorVendedora()">Excel — Uma Aba por Vendedora</button>
+        <button class="bup" onclick="exportarCalendarioVendas()">Excel — Calendário de Vendas</button>
       </div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--oud2);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div style="font-size:10px;letter-spacing:1.5px;color:var(--cr3);text-transform:uppercase;">
@@ -1478,44 +1514,57 @@ function trocarTab(tab){
 
 const VENDEDORAS = ['Jhennifer', 'Ialey', 'Michelly', 'Natália'];
 
+// Nomes que aparecem no Kigi mas NÃO são vendedoras (gestão, ex-vendedoras, vendedor genérico)
+// Aparecem por questões operacionais — não geram alarme na auditoria
+const NAO_VENDEDORAS_CONHECIDAS = ['Edson', 'Gregory', 'Joice', 'Larissa Gomes Vieira', 'Larissa', 'Loretto Scarpa', 'Yuri'];
+
+function ehGestorConhecido(nomeRaw){
+  const tx = String(nomeRaw || '').toLowerCase();
+  return NAO_VENDEDORAS_CONHECIDAS.some(g => tx.includes(g.toLowerCase()));
+}
+
 // Comissão por unidade vendida
 const COMISSAO = {
-  sapatos:    10,
-  cintos:      5,
-  carteiras:   5,
-  prendedores: 5,
-  limpeza:     0,
-  meias:       0
+  sapatos:            10,
+  sapatos_encomenda:  10,  // mesma comissão dos sapatos normais
+  cintos:              5,
+  carteiras:           5,
+  prendedores:         5,
+  limpeza:             0,
+  meias:               0
 };
 
 // Ordem de exibição na tabela
-const ORDEM_CAT = ['sapatos','meias','cintos','carteiras','prendedores','limpeza'];
+const ORDEM_CAT = ['sapatos','sapatos_encomenda','meias','cintos','carteiras','prendedores','limpeza'];
 
 const NOME_CAT = {
-  sapatos:     'Sapatos',
-  cintos:      'Cintos',
-  carteiras:   'Carteiras',
-  limpeza:     'Produtos de Limpeza',
-  prendedores: 'Prendedores de Camisa',
-  meias:       'Meias'
+  sapatos:           'Sapatos',
+  sapatos_encomenda: 'Sapatos de Encomenda',
+  cintos:            'Cintos',
+  carteiras:         'Carteiras',
+  limpeza:           'Produtos de Limpeza',
+  prendedores:       'Prendedores de Camisa',
+  meias:             'Meias'
 };
 
 // Palavras-chave para classificação automática
 const REGRAS_CAT = [
   // Frete / entrega / não-vendas — devem vir ANTES das categorias
-  {cat:'_excluir', termos:['frete','entrega','envio','correio','sedex','taxa de envio']},
+  {cat:'_excluir', termos:['frete','taxa de entrega','taxa de envio','envio','correio','sedex','desconto cupom']},
+  // Limpeza ANTES de sapatos (pra "Limpa Tenis" não cair em sapatos)
+  {cat:'limpeza', termos:['limpa','produto de limpeza','renovador','hidratante','hidrata','escova','impermeabilizante','impermeabiliza','graxa','polidor','condicionador couro','protetor de couro','revitaliza','flanela','muss','calcanheira','odor','desodoriz']},
+  // Meias ANTES de sapatos (pra "Meia Sapatilha" não cair em sapatos)
+  {cat:'meias', termos:['meia','soquete','sapatilha de meia']},
+  // Sapatos de Encomenda — produto fictício do Kigi (deve vir ANTES de sapatos)
+  {cat:'sapatos_encomenda', termos:['sapato encomenda','sapato de encomenda','encomenda']},
   // Sapatos
-  {cat:'sapatos', termos:['sapato','sneaker','tênis','tenis','loafer','slipper','bota','derby','oxford','mocassim','chuteira','chinelo','sandália','sandalia','sapatênis','sapatenis','sapatilha']},
+  {cat:'sapatos', termos:['sapato','sneaker','tênis','tenis','loafer','slipper','bota','derby','oxford','mocassim','chuteira','chinelo','sandália','sandalia','sapatênis','sapatenis','sapatilha','dockside','birken','wholecut']},
   // Cintos
   {cat:'cintos', termos:['cinto']},
   // Carteiras
   {cat:'carteiras', termos:['carteira','wallet','porta-cartão','porta cartao','porta-cartao']},
-  // Limpeza (Antes que outras keywords prendam algo)
-  {cat:'limpeza', termos:['limpa','produto de limpeza','renovador','hidratante','hidrata','escova','impermeabilizante','impermeabiliza','graxa','polidor','condicionador couro','protetor de couro','revitaliza','flanela']},
   // Prendedor
-  {cat:'prendedores', termos:['prendedor','prendedor de camisa','suspensório','suspensorio']},
-  // Meias (sem comissão mas precisa contar)
-  {cat:'meias', termos:['meia','soquete','sapatilha de meia']}
+  {cat:'prendedores', termos:['prendedor','prendedor de camisa','suspensório','suspensorio']}
 ];
 
 // Fotos das vendedoras (carregadas dinamicamente do JSON)
@@ -1720,9 +1769,17 @@ function detectarColunas(headerRow){
       n.includes('quantidade')
     )){ map.quantidade = idx; }
 
-    // Valor
+    // Data da venda
+    if(map.data === undefined && (
+      n === 'data' || n === 'data venda' || n === 'data da venda' ||
+      n.includes('data venda') || n.includes('data da venda') || n === 'dt'
+    )){ map.data = idx; }
+
+    // Valor (formato Kigi usa "Valor venda")
     if(map.valor === undefined && (
       n === 'valor' || n === 'total' || n === 'valor total' || n === 'subtotal' ||
+      n === 'valor venda' || n === 'valor de venda' ||
+      n.includes('valor venda') || n.includes('valor de venda') ||
       n.includes('valor total') || n.includes('total do item') || n.includes('total item')
     )){ map.valor = idx; }
   });
@@ -1799,6 +1856,359 @@ function limpar(){
   limparLog();
 }
 
+// ═════════════════════════ DETECTOR DE FORMATO KIGI ═════════════════════════
+// O Kigi (sistema de vendas) exporta o relatório agrupado por vendedor:
+//   Linha em branco
+//   "Vendedor => Nome"
+//   Cabeçalho (Empresa, Data, Ref. sequencial, Referência, Produto, ...)
+//   Linhas de venda (Loretto Scarpa, ...)
+//   " - Soma" (totalizador da vendedora)
+//   Próximo bloco
+function detectarFormatoKigi(linhas){
+  const blocos = [];
+  let blocoAtual = null;
+
+  for(let i = 0; i < linhas.length; i++){
+    const lin = linhas[i];
+    const c0 = String(lin[0] || '').trim();
+
+    // Detecta linha de vendedor: "Vendedor => Nome"
+    const matchVend = c0.match(/^Vendedor\s*=>\s*(.+)$/i);
+    if(matchVend){
+      // Fecha bloco anterior se ainda aberto sem soma explícita
+      if(blocoAtual && blocoAtual.headerIdx >= 0 && blocoAtual.endIdx === -1){
+        blocoAtual.endIdx = i;
+        blocos.push(blocoAtual);
+      }
+      blocoAtual = {
+        vendedor: matchVend[1].trim(),
+        headerIdx: -1, startIdx: -1, endIdx: -1,
+        linhaVendedor: i
+      };
+      continue;
+    }
+
+    if(!blocoAtual) continue;
+
+    // Detecta linha de cabeçalho do bloco (primeira após Vendedor com Empresa+Produto+Qtd)
+    if(blocoAtual.headerIdx === -1){
+      const join = lin.map(c=>normalizar(c)).join('|');
+      // Cabeçalho do Kigi tem "empresa", "produto" e "qtd"
+      if(join.includes('empresa') && join.includes('produto') && (join.includes('qtd') || join.includes('quantidade'))){
+        blocoAtual.headerIdx = i;
+        blocoAtual.startIdx = i + 1;
+        continue;
+      }
+    }
+
+    // Detecta linha de "Soma" (final do bloco) — geralmente começa com " - Soma" ou "Soma"
+    if(c0.toLowerCase().includes('soma') && c0.length < 30){
+      blocoAtual.endIdx = i; // exclusivo (linha da soma é pulada)
+      blocos.push(blocoAtual);
+      blocoAtual = null;
+    }
+  }
+
+  // Última seção sem fechamento explícito
+  if(blocoAtual && blocoAtual.headerIdx >= 0){
+    blocoAtual.endIdx = linhas.length;
+    blocos.push(blocoAtual);
+  }
+
+  // Só considera Kigi se achou pelo menos 2 blocos válidos
+  const validos = blocos.filter(b => b.headerIdx >= 0 && b.startIdx < b.endIdx);
+  return validos.length >= 2 ? validos : null;
+}
+
+// ═════════════════════════ PROCESSADOR FORMATO KIGI ═════════════════════════
+function processarFormatoKigi(linhas, blocos){
+  // Inicializa estrutura
+  const result = {};
+  VENDEDORAS.forEach(v=>{
+    result[v] = {};
+    ORDEM_CAT.forEach(c=>{
+      result[v][c] = {qtd:0, valor:0};
+    });
+    result[v]._porDia = {}; // {dia: {sapatos:0, sapatos_encomenda:0, ...}}
+  });
+  let totalGeralValor = 0;
+  let totalGeralPecas = 0;
+  let semVendedora = 0;
+  let excluidos = 0;
+  let semCategoria = 0;
+  let totalVendas = 0;
+  const semCategoriaItens = new Set();
+  const vendedorasNaoListadas = new Map();
+
+  // Auditoria
+  const auditoria = {
+    vendasSemVendedora: [],
+    produtosSemCategoria: new Map(),
+    valorZeroQtdPositiva: [],
+    qtdZeroValorPositivo: [],
+    anomaliasValor: [],
+    nomesVendedoraAprox: [],
+    possiveisDuplicatas: [],
+    lancamentosGestao: []  // Edson, Gregory, Larissa etc (esperado, info)
+  };
+  const linhasParaAnomalia = [];
+  const hashLinhas = new Map();
+
+  log(`Processando ${blocos.length} blocos de vendedoras...`);
+
+  for(const bloco of blocos){
+    const nomeRaw = bloco.vendedor;
+    const vend = matchVendedora(nomeRaw);
+
+    if(!vend){
+      // Vendedora não está na lista oficial — registra
+      if(!vendedorasNaoListadas.has(nomeRaw)){
+        vendedorasNaoListadas.set(nomeRaw, {ocorrencias:0, sugestao: sugerirVendedora(nomeRaw)});
+      }
+    }
+
+    const header = linhas[bloco.headerIdx];
+    const colMap = detectarColunas(header);
+    const dadosBloco = linhas.slice(bloco.startIdx, bloco.endIdx);
+
+    log(`Bloco "${nomeRaw}"${vend ? ` → ${vend}` : ' (não listada)'} — ${dadosBloco.length} linhas`);
+
+    if(colMap.produto === undefined){
+      log(`Sem coluna "Produto" no bloco "${nomeRaw}", pulando.`, 'am');
+      continue;
+    }
+
+    for(const lin of dadosBloco){
+      const produtoRaw = lin[colMap.produto];
+      if(!produtoRaw || !String(produtoRaw).trim()) continue;
+
+      // Pula linhas residuais de totalizador
+      const prodN = normalizar(produtoRaw);
+      if(prodN.startsWith('total') || prodN === 'subtotal' || prodN.startsWith('soma')) continue;
+      // No Kigi a primeira coluna é "Loretto Scarpa" (empresa) — só processa essas
+      const empresa = String(lin[0] || '').trim();
+      if(empresa && !empresa.toLowerCase().includes('loretto')) continue;
+
+      const qtd = parseQtd(colMap.quantidade !== undefined ? lin[colMap.quantidade] : 1);
+      const valor = parseValor(colMap.valor !== undefined ? lin[colMap.valor] : 0);
+
+      // Categoria
+      const cat = classificar(produtoRaw);
+
+      // Excluir frete/entrega/etc
+      if(cat === '_excluir'){ excluidos++; continue; }
+
+      if(!cat){
+        semCategoria++;
+        const prodStr = String(produtoRaw).trim();
+        semCategoriaItens.add(prodStr);
+        if(!auditoria.produtosSemCategoria.has(prodStr)){
+          auditoria.produtosSemCategoria.set(prodStr, {ocorrencias:0, qtd_total:0, valor_total:0});
+        }
+        const a = auditoria.produtosSemCategoria.get(prodStr);
+        a.ocorrencias++; a.qtd_total += qtd; a.valor_total += valor;
+        continue;
+      }
+
+      // Auditoria: zerados/anomalias
+      if(qtd > 0 && valor === 0 && cat !== 'meias' && cat !== 'limpeza'){
+        auditoria.valorZeroQtdPositiva.push({
+          produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, categoria: cat
+        });
+      }
+      if(valor > 0 && qtd === 0){
+        auditoria.qtdZeroValorPositivo.push({
+          produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, categoria: cat
+        });
+      }
+      if(qtd > 0 && valor > 0){
+        linhasParaAnomalia.push({
+          cat, produto: String(produtoRaw).trim(),
+          valorUnitario: valor / qtd, qtd, valor,
+          vendedora: vend
+        });
+      }
+
+      // Sem vendedora válida — não conta na comissão
+      if(!vend){
+        semVendedora++;
+        vendedorasNaoListadas.get(nomeRaw).ocorrencias++;
+        // Se for gestor/não-vendedora conhecido (Edson, Gregory, Larissa) → lista informativa
+        if(ehGestorConhecido(nomeRaw)){
+          auditoria.lancamentosGestao.push({
+            produto: String(produtoRaw).trim(), qtd, valor, categoria: cat,
+            nomeOriginal: nomeRaw
+          });
+        } else {
+          // Suspeito — vai pra lista de atenção
+          auditoria.vendasSemVendedora.push({
+            produto: String(produtoRaw).trim(), qtd, valor, categoria: cat,
+            nomeOriginal: nomeRaw
+          });
+        }
+        continue;
+      }
+
+      // ─── SAPATO ENCOMENDA: tratamento especial (Forma B) ───
+      // Vendas positivas (qtd > 0) = encomendas vendidas (todas contam pra comissão)
+      // Vendas negativas (qtd < 0) = trocas (sapato real chegou e foi entregue)
+      // O sapato real que vem da troca também é contado em "sapatos" — pra evitar
+      // dupla contagem, descontamos o número de trocas do total de sapatos depois.
+      if(cat === 'sapatos_encomenda'){
+        if(qtd > 0){
+          // Venda inicial de Sapato Encomenda
+          result[vend][cat].qtd += qtd;
+          result[vend][cat].valor += valor;
+        } else if(qtd < 0){
+          // Troca: marca como "entregue" mas NÃO subtrai da contagem
+          if(!result[vend][cat].entregues) result[vend][cat].entregues = 0;
+          result[vend][cat].entregues += Math.abs(qtd);
+          // Valor não muda (a troca não muda o valor da venda)
+        }
+      } else {
+        // Soma normal (qtd e valor podem ser negativos = devolução real)
+        result[vend][cat].qtd += qtd;
+        result[vend][cat].valor += valor;
+      }
+      totalGeralValor += valor;
+      totalGeralPecas += qtd;
+      totalVendas++;
+
+      // ── PorDia: captura o dia da venda (1-31) ──
+      if(colMap.data !== undefined){
+        const dataRaw = lin[colMap.data];
+        let dia = null;
+        if(dataRaw instanceof Date){
+          dia = dataRaw.getDate();
+        } else if(typeof dataRaw === 'number'){
+          // Número serial Excel — converte
+          // Excel: 1 = 1900-01-01 (com bug do ano bissexto). Subtrai 25569 dias e converte
+          const ms = (dataRaw - 25569) * 86400000;
+          dia = new Date(ms).getUTCDate();
+        } else if(typeof dataRaw === 'string' && dataRaw.trim()){
+          // Tenta parsear "dd/mm/yyyy" ou "yyyy-mm-dd"
+          const m = dataRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+          if(m) dia = parseInt(m[1], 10);
+          else {
+            const d = new Date(dataRaw);
+            if(!isNaN(d)) dia = d.getDate();
+          }
+        }
+        if(dia && dia >= 1 && dia <= 31){
+          if(!result[vend]._porDia[dia]){
+            result[vend]._porDia[dia] = {};
+            ORDEM_CAT.forEach(c => result[vend]._porDia[dia][c] = 0);
+          }
+          result[vend]._porDia[dia][cat] += qtd;
+        }
+      }
+
+      // Hash pra detectar duplicatas — inclui data para reduzir falsos positivos
+      // (mesma vendedora vendendo o mesmo produto em dias diferentes não é duplicata)
+      let dataKey = '';
+      if(colMap.data !== undefined){
+        const dataRaw = lin[colMap.data];
+        if(dataRaw instanceof Date) dataKey = dataRaw.toISOString().slice(0,10);
+        else if(typeof dataRaw === 'number') dataKey = String(dataRaw);
+        else if(typeof dataRaw === 'string') dataKey = dataRaw;
+      }
+      const hash = `${vend}|${cat}|${produtoRaw}|${qtd}|${valor}|${dataKey}`;
+      if(!hashLinhas.has(hash)) hashLinhas.set(hash, []);
+      hashLinhas.get(hash).push({produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, data: dataKey});
+    }
+  }
+
+  // ─── AJUSTE FORMA B: descontar de "sapatos" os que vieram de troca de Encomenda ───
+  // O sapato real que vem da troca aparece como +1 em sapatos. Como já contamos
+  // a venda original no Sapato Encomenda, precisamos descontar pra não duplicar.
+  VENDEDORAS.forEach(v=>{
+    const enc = result[v]['sapatos_encomenda'];
+    const entregues = (enc && enc.entregues) || 0;
+    enc.a_entregar = Math.max(0, (enc.qtd || 0) - entregues);
+    if(entregues > 0){
+      result[v]['sapatos'].qtd -= entregues;
+    }
+  });
+
+  // Calcula totais por vendedora
+  VENDEDORAS.forEach(v=>{
+    let total = {qtd:0, valor:0, comissao:0};
+    ORDEM_CAT.forEach(c=>{
+      const linha = result[v][c];
+      linha.comissao = linha.qtd * COMISSAO[c];
+      total.qtd += linha.qtd;
+      total.valor += linha.valor;
+      total.comissao += linha.comissao;
+    });
+    result[v]._total = total;
+  });
+
+  // Análise de anomalias estatísticas (valor unitário por categoria)
+  const porCat = {};
+  linhasParaAnomalia.forEach(i => {
+    if(!porCat[i.cat]) porCat[i.cat] = [];
+    porCat[i.cat].push(i);
+  });
+  Object.keys(porCat).forEach(cat=>{
+    const itens = porCat[cat];
+    if(itens.length < 4) return;
+    const valores = itens.map(i => i.valorUnitario);
+    const media = valores.reduce((a,b)=>a+b,0) / valores.length;
+    const variancia = valores.reduce((s,v)=>s + Math.pow(v-media,2), 0) / valores.length;
+    const stddev = Math.sqrt(variancia);
+    if(stddev < 0.01) return;
+    itens.forEach(i=>{
+      const desvio = Math.abs(i.valorUnitario - media);
+      if(desvio > 2.5 * stddev){
+        auditoria.anomaliasValor.push({
+          ...i,
+          mediaCategoria: media,
+          desvio: i.valorUnitario - media,
+          tipo: i.valorUnitario > media ? 'alto' : 'baixo'
+        });
+      }
+    });
+  });
+
+  // Possíveis duplicatas (5+ vendas idênticas no mesmo dia = suspeito de duplicação real)
+  hashLinhas.forEach((linhas, hash)=>{
+    if(linhas.length >= 5){
+      auditoria.possiveisDuplicatas.push({
+        hash, ocorrencias: linhas.length,
+        amostra: linhas[0]
+      });
+    }
+  });
+
+  // Nomes aproximados
+  vendedorasNaoListadas.forEach((info, nome)=>{
+    if(info.sugestao){
+      auditoria.nomesVendedoraAprox.push({
+        nome, ocorrencias: info.ocorrencias,
+        sugestao: info.sugestao.vendedora,
+        confianca: info.sugestao.confianca
+      });
+    }
+  });
+
+  log(`✓ Processamento concluído: ${totalVendas} vendas, ${totalGeralPecas} peças, R$ ${totalGeralValor.toFixed(2)}`);
+  if(semCategoria > 0) log(`⚠ ${semCategoria} itens sem categoria identificada`, 'am');
+  if(semVendedora > 0) log(`⚠ ${semVendedora} vendas de pessoas não listadas como vendedoras`, 'am');
+  if(excluidos > 0) log(`Itens excluídos (frete/entrega/etc): ${excluidos}`, 'am');
+  if(vendedorasNaoListadas.size){
+    log(`⚠ Nomes não listados como vendedoras: ${Array.from(vendedorasNaoListadas.keys()).join(', ')}`, 'am');
+  }
+
+  RESULTADO = {
+    result, totalGeralValor, totalGeralPecas, totalVendas,
+    excluidos, semVendedora, semCategoria, auditoria
+  };
+
+  renderizar();
+  salvarFechamentoMes();
+  toast('Fechamento processado e salvo', 'ok');
+}
+
 function processarBuffer(){
   limparLog();
   log('Iniciando processamento...');
@@ -1820,6 +2230,22 @@ function processarBuffer(){
     const ws = wb.Sheets[melhorAba];
     let linhas = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:''});
 
+    // ── DETECÇÃO DE FORMATO KIGI ──
+    // O Kigi usa estrutura agrupada por vendedor:
+    //   "Vendedor => Nome"
+    //   [cabeçalho]
+    //   [linhas de venda]
+    //   " - Soma"
+    //   "Vendedor => Próximo"
+    //   ...
+    const blocosKigi = detectarFormatoKigi(linhas);
+    if(blocosKigi){
+      log(`Formato Kigi detectado: ${blocosKigi.length} ${blocosKigi.length === 1 ? 'vendedor' : 'vendedores'} no arquivo`);
+      processarFormatoKigi(linhas, blocosKigi);
+      return;
+    }
+
+    // ── FORMATO GENÉRICO ──
     // Localizar a linha do cabeçalho — primeira que tenha pelo menos 3 colunas com texto
     let idxHeader = -1;
     for(let i=0; i<Math.min(linhas.length, 30); i++){
@@ -2075,6 +2501,7 @@ function fmtInt(n){
 
 const ICONS = {
   sapatos: '<svg viewBox="0 0 24 24"><path d="M2 18l3-2 4 1 5-2 4 1 4-2v3a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1z"/><path d="M6 14V8a4 4 0 0 1 4-4h0a4 4 0 0 1 4 4v0"/></svg>',
+  sapatos_encomenda: '<svg viewBox="0 0 24 24"><path d="M2 18l3-2 4 1 5-2 4 1 4-2v3a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1z"/><path d="M6 14V8a4 4 0 0 1 4-4h0a4 4 0 0 1 4 4v0"/><circle cx="19" cy="6" r="3" fill="currentColor" stroke="none"/><path d="M19 5v2M18 6h2" stroke="#1a1a1a" stroke-width="1"/></svg>',
   cintos: '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="6" rx="1"/><circle cx="9" cy="12" r="1"/><circle cx="13" cy="12" r="1"/></svg>',
   carteiras: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h5"/><path d="M3 10h18"/></svg>',
   limpeza: '<svg viewBox="0 0 24 24"><path d="M9 3h6l1 5H8z"/><path d="M10 8v13M14 8v13"/><path d="M8 21h8"/></svg>',
@@ -2118,11 +2545,14 @@ function renderizar(){
   let melhorAcess = {nome:'—', val:0};
   let melhorMix = {nome:'—', ratio:0, sap:0, acess:0};
   VENDEDORAS.forEach(v=>{
-    const sap = result[v].sapatos.qtd;
-    const acess = result[v].cintos.qtd + result[v].carteiras.qtd + result[v].prendedores.qtd;
+    // Pares vendidos = sapatos comuns + sapatos de encomenda
+    const sap = result[v].sapatos.qtd + (result[v].sapatos_encomenda?.qtd || 0);
+    // Mix completo = todas as categorias não-sapato (cintos, carteiras, prendedores, meias, limpeza)
+    const acess = result[v].cintos.qtd + result[v].carteiras.qtd + result[v].prendedores.qtd
+                + result[v].meias.qtd + result[v].limpeza.qtd;
     if(sap > melhorSap.val) melhorSap = {nome:v, val:sap};
     if(acess > melhorAcess.val) melhorAcess = {nome:v, val:acess};
-    // Conversão de mix: acessórios por par de sapato.
+    // Conversão de mix: itens de mix por par de sapato.
     // Só conta vendedoras que venderam pelo menos 3 sapatos (estatística mais relevante)
     if(sap >= 3){
       const ratio = acess / sap;
@@ -2173,10 +2603,25 @@ function renderizar(){
     ORDEM_CAT.forEach(c=>{
       const l = dados[c];
       const cls = l.qtd === 0 ? 'zero' : '';
+      // Sapatos de Encomenda: chips elegantes para entregues / a entregar
+      let qtdHtml = fmtInt(l.qtd);
+      if(c === 'sapatos_encomenda' && l.qtd > 0){
+        const ent = l.entregues || 0;
+        const aEnt = l.a_entregar !== undefined ? l.a_entregar : (l.qtd - ent);
+        qtdHtml = `
+          <div class="se-qtd-wrap">
+            <span class="se-total">${fmtInt(l.qtd)}</span>
+            <div class="se-chips">
+              ${ent > 0 ? `<span class="se-chip se-chip-ok" title="Entregue${ent === 1 ? '' : 's'} ao cliente"><span class="se-chip-dot"></span>${ent} entregue${ent === 1 ? '' : 's'}</span>` : ''}
+              ${aEnt > 0 ? `<span class="se-chip se-chip-pend" title="Aguardando o sapato real chegar"><span class="se-chip-dot"></span>${aEnt} a entregar</span>` : ''}
+            </div>
+          </div>
+        `;
+      }
       linhasTab += `
         <tr class="${cls}">
           <td class="tcat"><span class="cat-icon">${ICONS[c]||''}</span>${NOME_CAT[c]}</td>
-          <td class="tnum">${fmtInt(l.qtd)}</td>
+          <td class="tnum">${qtdHtml}</td>
           <td class="tnum">${fmtBRL(l.comissao)}</td>
           <td class="tnum">${fmtBRL(l.valor)}</td>
         </tr>`;
@@ -2329,6 +2774,20 @@ function carregarFechamentoMes(){
     if(!raw) return false;
     const dados = JSON.parse(raw);
 
+    // ── MIGRAÇÃO: fechamentos antigos não têm sapatos_encomenda ──
+    // Adiciona com {qtd:0, valor:0} pra não quebrar UI
+    if(dados.result){
+      VENDEDORAS.forEach(v=>{
+        if(dados.result[v]){
+          ORDEM_CAT.forEach(c=>{
+            if(!dados.result[v][c]){
+              dados.result[v][c] = {qtd: 0, valor: 0, comissao: 0};
+            }
+          });
+        }
+      });
+    }
+
     // Desserializa auditoria (Object -> Map)
     let auditoria = dados.auditoria;
     if(auditoria && Array.isArray(auditoria.produtosSemCategoria)){
@@ -2428,10 +2887,12 @@ function renderAuditoria(){
     {tipo:'warn', count: a.produtosSemCategoria.size, render:'semCategoria'},
     {tipo:'warn', count: a.anomaliasValor.length, render:'anomalias'},
     {tipo:'warn', count: a.nomesVendedoraAprox.length, render:'nomesAprox'},
-    {tipo:'warn', count: a.possiveisDuplicatas.length, render:'duplicatas'}
+    {tipo:'warn', count: a.possiveisDuplicatas.length, render:'duplicatas'},
+    {tipo:'info', count: (a.lancamentosGestao || []).length, render:'gestao'}
   ];
   const totalErros = problemas.filter(p=>p.tipo==='erro').reduce((s,p)=>s+p.count,0);
   const totalWarns = problemas.filter(p=>p.tipo==='warn').reduce((s,p)=>s+p.count,0);
+  const totalInfos = problemas.filter(p=>p.tipo==='info').reduce((s,p)=>s+p.count,0);
 
   const area = document.getElementById('auditoria-area');
   area.style.display = '';
@@ -2554,14 +3015,38 @@ function renderAuditoria(){
   if(a.possiveisDuplicatas.length){
     const rows = a.possiveisDuplicatas.slice(0,12).map(d=>`
       <tr>
-        <td>${d.produto}</td>
-        <td>${d.vendedora}</td>
+        <td>${d.amostra ? d.amostra.produto : (d.produto || '—')}</td>
+        <td>${d.amostra ? d.amostra.vendedora : (d.vendedora || '—')}</td>
         <td class="tnum">${d.ocorrencias}×</td>
-        <td class="tnum">${fmtBRL(d.valor)}</td>
+        <td class="tnum">${fmtBRL(d.amostra ? d.amostra.valor : (d.valor || 0))}</td>
       </tr>`).join('');
     html += secAud('duplicatas', `Possíveis lançamentos duplicados`, a.possiveisDuplicatas.length, 'warn', `
-      <p>Mesma vendedora, mesmo produto, mesmo valor lançado mais de uma vez. Pode ser legítimo (vender 2 cintos iguais a clientes diferentes), mas vale conferir no sistema.</p>
+      <p>Mesma vendedora, mesmo produto, mesmo valor, <strong>no mesmo dia</strong>, lançado 5 ou mais vezes. Pode ser legítimo (vendas em peso pra mesma família, dia das mães, etc.), mas vale conferir.</p>
       <table><thead><tr><th>Produto</th><th>Vendedora</th><th class="tnum">Vezes</th><th class="tnum">Valor</th></tr></thead><tbody>${rows}</tbody></table>
+    `);
+  }
+
+  // Lançamentos da gestão (Edson, Gregory, Larissa Gomes Vieira, etc) — info, esperado
+  if(a.lancamentosGestao && a.lancamentosGestao.length){
+    // Agrupa por nome
+    const porNome = {};
+    a.lancamentosGestao.forEach(l=>{
+      const k = l.nomeOriginal;
+      if(!porNome[k]) porNome[k] = {qtd: 0, valor: 0, ocorrencias: 0};
+      porNome[k].qtd += l.qtd;
+      porNome[k].valor += l.valor;
+      porNome[k].ocorrencias++;
+    });
+    const rows = Object.entries(porNome).map(([nome, d])=>`
+      <tr>
+        <td>${nome}</td>
+        <td class="tnum">${d.ocorrencias}</td>
+        <td class="tnum">${fmtInt(d.qtd)}</td>
+        <td class="tnum">${fmtBRL(d.valor)}</td>
+      </tr>`).join('');
+    html += secAud('gestao', `Lançamentos de gestão (não comissionáveis)`, a.lancamentosGestao.length, 'info', `
+      <p>Lançamentos feitos por pessoas da gestão ou ex-vendedoras (Edson, Gregory, Larissa, Joice, etc). <strong>Não geram comissão</strong> — é normal aparecerem no relatório do Kigi para fins administrativos.</p>
+      <table><thead><tr><th>Nome no Kigi</th><th class="tnum">Lançamentos</th><th class="tnum">Qtd Total</th><th class="tnum">Valor Total</th></tr></thead><tbody>${rows}</tbody></table>
     `);
   }
 
@@ -2570,9 +3055,11 @@ function renderAuditoria(){
 }
 
 function secAud(id, titulo, count, tipo, body){
-  const badgeClass = tipo === 'erro' ? '' : 'warning';
+  let badgeClass = '';
+  if(tipo === 'warn') badgeClass = 'warning';
+  else if(tipo === 'info') badgeClass = 'info';
   return `
-    <div class="aud-sec" id="aud-${id}">
+    <div class="aud-sec aud-sec-${tipo}" id="aud-${id}">
       <div class="aud-sec-head" onclick="document.getElementById('aud-${id}').classList.toggle('open')">
         <div class="aud-sec-tit">
           ${titulo}
@@ -3847,7 +4334,14 @@ function exportarExcel(){
     const bonus = bonusManualVendedora(v, d, atingimentos, metas);
     ORDEM_CAT.forEach(c=>{
       const l = d[c];
-      detalhe.push([v, NOME_CAT[c], l.qtd, COMISSAO[c], l.comissao]);
+      // Sapatos de Encomenda: mostra detalhe de entregues/pendentes na coluna Categoria
+      let nomeCategoria = NOME_CAT[c];
+      if(c === 'sapatos_encomenda' && l.qtd > 0){
+        const ent = l.entregues || 0;
+        const aEnt = l.a_entregar !== undefined ? l.a_entregar : (l.qtd - ent);
+        nomeCategoria = `${NOME_CAT[c]} (${ent} entregue${ent === 1 ? '' : 's'} / ${aEnt} a entregar)`;
+      }
+      detalhe.push([v, nomeCategoria, l.qtd, COMISSAO[c], l.comissao]);
     });
     detalhe.push([v, 'TOTAL DE COMISSÃO', d._total.qtd, '', d._total.comissao]);
     if(he.horas > 0){
@@ -3971,7 +4465,13 @@ function exportarPorVendedora(){
     ];
     ORDEM_CAT.forEach(c=>{
       const l = d[c];
-      linhas.push([NOME_CAT[c], l.qtd, COMISSAO[c], l.comissao]);
+      let nomeCategoria = NOME_CAT[c];
+      if(c === 'sapatos_encomenda' && l.qtd > 0){
+        const ent = l.entregues || 0;
+        const aEnt = l.a_entregar !== undefined ? l.a_entregar : (l.qtd - ent);
+        nomeCategoria = `${NOME_CAT[c]} (${ent} entregue${ent === 1 ? '' : 's'} / ${aEnt} a entregar)`;
+      }
+      linhas.push([nomeCategoria, l.qtd, COMISSAO[c], l.comissao]);
     });
     linhas.push(['TOTAL DE COMISSÃO', d._total.qtd, '', d._total.comissao]);
     linhas.push([]);
@@ -4004,6 +4504,118 @@ function exportarPorVendedora(){
   const nomeArq = `loretto-comissoes-por-vendedora-${MESES[DATA_ATUAL.getMonth()].toLowerCase()}-${DATA_ATUAL.getFullYear()}.xlsx`;
   XLSX.writeFile(wb, nomeArq);
   toast('Excel por vendedora exportado','ok');
+}
+
+// ═════════════════════════ EXPORTAR CALENDÁRIO DE VENDAS ═════════════════════════
+// Excel com 1 aba por vendedora.
+// Cada aba tem dias 1-31 nas linhas e categorias nas colunas (qtd vendida por dia).
+// Larissa imprime e entrega pra cada vendedora.
+function exportarCalendarioVendas(){
+  if(!RESULTADO){ toast('Processe um arquivo primeiro','er'); return; }
+  const {result} = RESULTADO;
+
+  // Verifica se temos dados por dia (só funciona em fechamentos novos com Kigi)
+  const temPorDia = VENDEDORAS.some(v => result[v] && result[v]._porDia && Object.keys(result[v]._porDia).length > 0);
+  if(!temPorDia){
+    toast('Calendário disponível apenas para fechamentos do Kigi com data — reprocesse o arquivo bruto', 'er');
+    return;
+  }
+
+  const ano = DATA_ATUAL.getFullYear();
+  const mes = DATA_ATUAL.getMonth();
+  const diasNoMes = new Date(ano, mes + 1, 0).getDate(); // último dia do mês
+  const wb = XLSX.utils.book_new();
+
+  VENDEDORAS.forEach(v=>{
+    const linhas = [];
+
+    // Cabeçalho do mês
+    linhas.push([`${v} — ${MESES[mes]} ${ano}`]);
+    linhas.push(['Vendas diárias por categoria (quantidade de itens)']);
+    linhas.push([]);
+
+    // Cabeçalho da tabela
+    linhas.push([
+      'Dia',
+      NOME_CAT.sapatos,
+      NOME_CAT.sapatos_encomenda,
+      NOME_CAT.meias,
+      NOME_CAT.cintos,
+      NOME_CAT.carteiras,
+      NOME_CAT.prendedores,
+      NOME_CAT.limpeza,
+      'Total do Dia'
+    ]);
+
+    // Linhas dos dias
+    const porDia = (result[v] && result[v]._porDia) || {};
+    const totaisCol = {sapatos:0, sapatos_encomenda:0, meias:0, cintos:0, carteiras:0, prendedores:0, limpeza:0};
+    let totalGeral = 0;
+
+    for(let d = 1; d <= diasNoMes; d++){
+      const dia = porDia[d] || {};
+      const sap   = dia.sapatos || 0;
+      const sapEnc = dia.sapatos_encomenda || 0;
+      const mei   = dia.meias || 0;
+      const cin   = dia.cintos || 0;
+      const car   = dia.carteiras || 0;
+      const pre   = dia.prendedores || 0;
+      const lim   = dia.limpeza || 0;
+      const totalDia = sap + sapEnc + mei + cin + car + pre + lim;
+
+      totaisCol.sapatos += sap;
+      totaisCol.sapatos_encomenda += sapEnc;
+      totaisCol.meias += mei;
+      totaisCol.cintos += cin;
+      totaisCol.carteiras += car;
+      totaisCol.prendedores += pre;
+      totaisCol.limpeza += lim;
+      totalGeral += totalDia;
+
+      const dataStr = `${String(d).padStart(2,'0')}/${String(mes+1).padStart(2,'0')}`;
+      linhas.push([
+        dataStr,
+        sap || '',
+        sapEnc || '',
+        mei || '',
+        cin || '',
+        car || '',
+        pre || '',
+        lim || '',
+        totalDia || ''
+      ]);
+    }
+
+    // Linha de totais
+    linhas.push([
+      'TOTAL',
+      totaisCol.sapatos,
+      totaisCol.sapatos_encomenda,
+      totaisCol.meias,
+      totaisCol.cintos,
+      totaisCol.carteiras,
+      totaisCol.prendedores,
+      totaisCol.limpeza,
+      totalGeral
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(linhas);
+    ws['!cols'] = [
+      {wch:8},{wch:9},{wch:14},{wch:7},{wch:7},{wch:10},{wch:14},{wch:14},{wch:12}
+    ];
+
+    // Mescla células do título
+    ws['!merges'] = [
+      {s:{r:0,c:0}, e:{r:0,c:8}},
+      {s:{r:1,c:0}, e:{r:1,c:8}}
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, v.substring(0,30));
+  });
+
+  const nomeArq = `loretto-calendario-vendas-${MESES[mes].toLowerCase()}-${ano}.xlsx`;
+  XLSX.writeFile(wb, nomeArq);
+  toast('Calendário de vendas exportado', 'ok');
 }
 
 // ═════════════════════════ EXPORTAR PDF ═════════════════════════

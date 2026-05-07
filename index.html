@@ -995,6 +995,44 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   padding:7px 10px;color:var(--cr2);border-bottom:1px solid rgba(212,180,90,.08);
 }
 .aud-sec-body td.tnum{text-align:right;font-variant-numeric:tabular-nums;}
+
+/* ─── Sub-seções dentro do card de Valores Atípicos ─── */
+.atip-subgrupo{
+  margin-top:18px;
+  padding-top:14px;
+  border-top:1px dashed rgba(212,180,90,.15);
+}
+.atip-subgrupo:first-of-type{margin-top:14px;border-top:none;padding-top:0;}
+.atip-subtit{
+  display:flex;align-items:center;gap:10px;
+  font-family:'Cormorant Garamond',serif;
+  font-size:14px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;
+  margin-bottom:8px;
+  padding:6px 12px;
+}
+.atip-subtit-bullet{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;font-size:14px;font-weight:600;
+  font-family:'Barlow',sans-serif;line-height:1;
+}
+.atip-subtit-count{
+  font-size:10px;letter-spacing:1px;font-weight:500;
+  font-family:'Barlow',sans-serif;
+  margin-left:auto;
+  padding:2px 8px;
+  border:1px solid currentColor;
+  opacity:.8;
+}
+.atip-subtit-acima{
+  color:#e09e9a;
+  background:rgba(224,158,154,.06);
+  border-left:2px solid #e09e9a;
+}
+.atip-subtit-abaixo{
+  color:var(--ou);
+  background:rgba(212,180,90,.06);
+  border-left:2px solid var(--ou);
+}
 .aud-sec-body code{
   background:rgba(212,180,90,.08);padding:1px 6px;font-size:10px;
   color:var(--ou2);font-family:'DM Mono',monospace,serif;
@@ -2086,6 +2124,17 @@ function detectarColunas(headerRow){
       n.includes('data venda') || n.includes('data da venda') || n === 'dt'
     )){ map.data = idx; }
 
+    // Tamanho / Numeração
+    if(map.tamanho === undefined && (
+      n === 'tamanho' || n === 'numero' || n === 'número' || n === 'num' ||
+      n === 'numeração' || n === 'numeracao' || n === 'tam'
+    )){ map.tamanho = idx; }
+
+    // Cor (tem que ser exatamente 'cor', evitar 'cores' ou 'corredor' etc)
+    if(map.cor === undefined && (n === 'cor' || n === 'cores')){
+      map.cor = idx;
+    }
+
     // Valor (formato Kigi usa "Valor venda")
     if(map.valor === undefined && (
       n === 'valor' || n === 'total' || n === 'valor total' || n === 'subtotal' ||
@@ -2355,7 +2404,9 @@ function processarFormatoKigi(linhas, blocos){
     anomaliasValor: [],
     nomesVendedoraAprox: [],
     possiveisDuplicatas: [],
-    lancamentosGestao: []  // Edson, Gregory, Larissa etc (esperado, info)
+    lancamentosGestao: [], // Gregory/Larissa/Loretto Scarpa com valor normal (info)
+    parcerias: [],         // Gregory/Larissa/Loretto Scarpa com valor atípico (sapato cortesia)
+    ecommerce: []          // Todas vendas do Edson (canal e-commerce)
   };
   const linhasParaAnomalia = [];
   const hashLinhas = new Map();
@@ -2416,22 +2467,17 @@ function processarFormatoKigi(linhas, blocos){
         continue;
       }
 
-      // Auditoria: zerados/anomalias
-      if(qtd > 0 && valor === 0 && cat !== 'meias' && cat !== 'limpeza'){
+      // Auditoria: zerados/anomalias (excluindo gestores conhecidos —
+      // estes já são tratados em Parcerias / E-commerce / Gestão)
+      const ehGestor = ehGestorConhecido(nomeRaw);
+      if(qtd > 0 && valor === 0 && cat !== 'meias' && cat !== 'limpeza' && !ehGestor){
         auditoria.valorZeroQtdPositiva.push({
           produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, categoria: cat
         });
       }
-      if(valor > 0 && qtd === 0){
+      if(valor > 0 && qtd === 0 && !ehGestor){
         auditoria.qtdZeroValorPositivo.push({
           produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, categoria: cat
-        });
-      }
-      if(qtd > 0 && valor > 0){
-        linhasParaAnomalia.push({
-          cat, produto: String(produtoRaw).trim(),
-          valorUnitario: valor / qtd, qtd, valor,
-          vendedora: vend
         });
       }
 
@@ -2439,10 +2485,14 @@ function processarFormatoKigi(linhas, blocos){
       if(!vend){
         semVendedora++;
         vendedorasNaoListadas.get(nomeRaw).ocorrencias++;
-        // Se for gestor/não-vendedora conhecido (Edson, Gregory, Larissa) → lista informativa
+        // Se for gestor/não-vendedora conhecido → lista informativa
+        // (depois é redistribuído entre Gestão / Parcerias / E-commerce)
         if(ehGestorConhecido(nomeRaw)){
+          const tam = colMap.tamanho !== undefined ? String(lin[colMap.tamanho] || '').trim() : '';
+          const cor = colMap.cor !== undefined ? String(lin[colMap.cor] || '').trim() : '';
           auditoria.lancamentosGestao.push({
             produto: String(produtoRaw).trim(), qtd, valor, categoria: cat,
+            tamanho: tam, cor: cor,
             nomeOriginal: nomeRaw
           });
         } else {
@@ -2453,6 +2503,17 @@ function processarFormatoKigi(linhas, blocos){
           });
         }
         continue;
+      }
+
+      // Captura pra análise de anomalias APENAS das vendedoras oficiais
+      // (vendas de gestão como Gregory/parcerias e Edson/ecommerce têm preços diferentes
+      // e não devem distorcer a média da categoria)
+      if(qtd > 0 && valor > 0){
+        linhasParaAnomalia.push({
+          cat, produto: String(produtoRaw).trim(),
+          valorUnitario: valor / qtd, qtd, valor,
+          vendedora: vend
+        });
       }
 
       // ─── SAPATO ENCOMENDA: tratamento especial (Forma B) ───
@@ -2509,7 +2570,8 @@ function processarFormatoKigi(linhas, blocos){
         }
       }
 
-      // Hash pra detectar duplicatas — inclui data para reduzir falsos positivos
+      // Hash pra detectar duplicatas — inclui produto + tamanho + cor + valor + data
+      // Regra: mesma vendedora + mesmo produto (com cor e numeração) + mesmo valor + mesmo dia
       // Meias são excluídas porque são vendidas em volume (mesmo SKU várias vezes/dia)
       if(cat !== 'meias'){
         let dataKey = '';
@@ -2519,9 +2581,14 @@ function processarFormatoKigi(linhas, blocos){
           else if(typeof dataRaw === 'number') dataKey = String(dataRaw);
           else if(typeof dataRaw === 'string') dataKey = dataRaw;
         }
-        const hash = `${vend}|${cat}|${produtoRaw}|${qtd}|${valor}|${dataKey}`;
+        const tamanho = colMap.tamanho !== undefined ? String(lin[colMap.tamanho] || '').trim() : '';
+        const cor = colMap.cor !== undefined ? String(lin[colMap.cor] || '').trim() : '';
+        const hash = `${vend}|${cat}|${produtoRaw}|${tamanho}|${cor}|${qtd}|${valor}|${dataKey}`;
         if(!hashLinhas.has(hash)) hashLinhas.set(hash, []);
-        hashLinhas.get(hash).push({produto: String(produtoRaw).trim(), qtd, valor, vendedora: vend, data: dataKey});
+        hashLinhas.get(hash).push({
+          produto: String(produtoRaw).trim(),
+          tamanho, cor, qtd, valor, vendedora: vend, data: dataKey
+        });
       }
     }
   }
@@ -2551,36 +2618,103 @@ function processarFormatoKigi(linhas, blocos){
     result[v]._total = total;
   });
 
-  // Análise de anomalias estatísticas (valor unitário por categoria)
+  // Análise de anomalias estatísticas — POR MODELO (não por categoria)
+  // Compara cada venda contra outras vendas do MESMO produto.
+  // Ex: "Loafer Dubai" R$ 199 quando outras vendas de Loafer Dubai foram R$ 349 = erro real.
+  // Modelos com menos de 4 vendas são pulados (amostra muito pequena).
+  const porProduto = {};
+  linhasParaAnomalia.forEach(i => {
+    const chave = `${i.cat}||${normalizar(i.produto)}`;
+    if(!porProduto[chave]) porProduto[chave] = [];
+    porProduto[chave].push(i);
+  });
+
+  // Mantém também médias por categoria (usado pra reclassificar Parcerias —
+  // gestores fazem poucas vendas, então não dá pra ter média por modelo deles)
+  const mediasPorCat = {};
   const porCat = {};
   linhasParaAnomalia.forEach(i => {
     if(!porCat[i.cat]) porCat[i.cat] = [];
     porCat[i.cat].push(i);
   });
   Object.keys(porCat).forEach(cat=>{
-    const itens = porCat[cat];
+    const valores = porCat[cat].map(i => i.valorUnitario);
+    if(valores.length < 4) return;
+    const media = valores.reduce((a,b)=>a+b,0) / valores.length;
+    const variancia = valores.reduce((s,v)=>s + Math.pow(v-media,2), 0) / valores.length;
+    const stddev = Math.sqrt(variancia);
+    if(stddev < 0.01) return;
+    mediasPorCat[cat] = {media, stddev};
+  });
+
+  // Detecta anomalias por MODELO
+  Object.keys(porProduto).forEach(chave=>{
+    const itens = porProduto[chave];
     if(itens.length < 4) return;
     const valores = itens.map(i => i.valorUnitario);
     const media = valores.reduce((a,b)=>a+b,0) / valores.length;
     const variancia = valores.reduce((s,v)=>s + Math.pow(v-media,2), 0) / valores.length;
     const stddev = Math.sqrt(variancia);
-    if(stddev < 0.01) return;
+    if(stddev < 0.01) return; // todas as vendas iguais — sem variação
+
     itens.forEach(i=>{
       const desvio = Math.abs(i.valorUnitario - media);
-      if(desvio > 2.5 * stddev){
+      // Threshold duplo: estatístico (2.5σ) E mínimo absoluto (R$ 10) pra ignorar variações
+      // pequenas tipo arredondamento de centavos
+      if(desvio > 2.5 * stddev && desvio > 10){
         auditoria.anomaliasValor.push({
           ...i,
-          mediaCategoria: media,
+          mediaCategoria: media, // agora é média do MODELO
           desvio: i.valorUnitario - media,
-          tipo: i.valorUnitario > media ? 'alto' : 'baixo'
+          tipo: i.valorUnitario > media ? 'alto' : 'baixo',
+          ehPorModelo: true
         });
       }
     });
   });
 
-  // Possíveis duplicatas (5+ vendas idênticas no mesmo dia = suspeito de duplicação real)
+  // ─── REDISTRIBUI LANÇAMENTOS DE GESTÃO em E-commerce / Parcerias / Gestão ───
+  // - Edson sempre vai pra E-commerce (canal próprio)
+  // - Gregory/Larissa/Loretto Scarpa com valor atípico vão pra Parcerias (cortesia)
+  // - Resto continua em Lançamentos de Gestão
+  function ehParceria(nome){
+    const n = String(nome || '').toLowerCase();
+    return n.includes('gregory') || n.includes('larissa') || n.includes('loretto scarpa');
+  }
+  function ehEcommerce(nome){
+    return String(nome || '').toLowerCase().includes('edson');
+  }
+  function valorEhAtipico(item){
+    if(item.qtd <= 0 || item.valor < 0) return false;
+    const stat = mediasPorCat[item.categoria];
+    if(!stat) return false;
+    const valorUnit = item.valor / item.qtd;
+    const desvio = Math.abs(valorUnit - stat.media);
+    return desvio > 2.5 * stat.stddev;
+  }
+  const novosGestao = [];
+  auditoria.lancamentosGestao.forEach(item=>{
+    if(ehEcommerce(item.nomeOriginal)){
+      auditoria.ecommerce.push(item);
+    } else if(ehParceria(item.nomeOriginal) && valorEhAtipico(item)){
+      const stat = mediasPorCat[item.categoria];
+      const valorUnit = item.qtd > 0 ? item.valor / item.qtd : 0;
+      auditoria.parcerias.push({
+        ...item,
+        valorUnitario: valorUnit,
+        mediaCategoria: stat ? stat.media : 0,
+        desvio: stat ? (valorUnit - stat.media) : 0
+      });
+    } else {
+      novosGestao.push(item);
+    }
+  });
+  auditoria.lancamentosGestao = novosGestao;
+
+  // Possíveis duplicatas (3+ vendas idênticas no mesmo dia, mesma vendedora,
+  // mesmo produto/cor/numeração/valor — provável duplicação de lançamento)
   hashLinhas.forEach((linhas, hash)=>{
-    if(linhas.length >= 5){
+    if(linhas.length >= 3){
       auditoria.possiveisDuplicatas.push({
         hash, ocorrencias: linhas.length,
         amostra: linhas[0]
@@ -2819,29 +2953,33 @@ function processarBuffer(){
       result[vend][cat].valor += valor;
     }
 
-    // ── AUDITORIA: Detecta anomalias estatísticas (valor unitário) ──
-    // Por categoria, calcula média e desvio. Flagra > 2 stddev fora.
-    const porCat = {};
+    // ── AUDITORIA: Detecta anomalias estatísticas POR MODELO ──
+    // Compara cada venda contra outras vendas do MESMO produto.
+    // Modelos com menos de 4 vendas são pulados (amostra muito pequena).
+    const porProduto = {};
     linhasParaAnomalia.forEach(l => {
-      if(!porCat[l.cat]) porCat[l.cat] = [];
-      porCat[l.cat].push(l);
+      const chave = `${l.cat}||${normalizar(l.produto)}`;
+      if(!porProduto[chave]) porProduto[chave] = [];
+      porProduto[chave].push(l);
     });
-    Object.keys(porCat).forEach(cat=>{
-      const itens = porCat[cat];
-      if(itens.length < 4) return; // amostra pequena, não faz sentido
+    Object.keys(porProduto).forEach(chave=>{
+      const itens = porProduto[chave];
+      if(itens.length < 4) return;
       const valores = itens.map(i => i.valorUnitario);
       const media = valores.reduce((a,b)=>a+b,0) / valores.length;
       const variancia = valores.reduce((s,v)=>s + Math.pow(v-media,2), 0) / valores.length;
       const stddev = Math.sqrt(variancia);
-      if(stddev < 0.01) return; // todos os valores praticamente iguais
+      if(stddev < 0.01) return;
       itens.forEach(i=>{
         const desvio = Math.abs(i.valorUnitario - media);
-        if(desvio > 2.5 * stddev){
+        // Threshold duplo: estatístico (2.5σ) E mínimo absoluto (R$ 10)
+        if(desvio > 2.5 * stddev && desvio > 10){
           auditoria.anomaliasValor.push({
             ...i,
-            mediaCategoria: media,
+            mediaCategoria: media, // agora é média do MODELO
             desvio: i.valorUnitario - media,
-            tipo: i.valorUnitario > media ? 'alto' : 'baixo'
+            tipo: i.valorUnitario > media ? 'alto' : 'baixo',
+            ehPorModelo: true
           });
         }
       });
@@ -3498,6 +3636,8 @@ function renderAuditoria(){
     {tipo:'warn', count: a.produtosSemCategoria.size, render:'semCategoria'},
     {tipo:'warn', count: a.nomesVendedoraAprox.length, render:'nomesAprox'},
     {tipo:'warn', count: a.possiveisDuplicatas.length, render:'duplicatas'},
+    {tipo:'info', count: (a.parcerias || []).length, render:'parcerias'},
+    {tipo:'info', count: (a.ecommerce || []).length, render:'ecommerce'},
     {tipo:'info', count: (a.lancamentosGestao || []).length, render:'gestao'}
   ];
   const totalErros = problemas.filter(p=>p.tipo==='erro').reduce((s,p)=>s+p.count,0);
@@ -3579,43 +3719,93 @@ function renderAuditoria(){
     `);
   }
 
-  // Valores atípicos (combinado: vendas R$ 0 + valores fora do padrão da categoria)
-  const valoresAtipicos = [
+  // Valores atípicos (combinado: vendas R$ 0 + valores fora do padrão)
+  // Separado em sub-seções: "Cobrados acima" e "Cobrados abaixo"
+  const acima = a.anomaliasValor
+    .filter(v => v.tipo === 'alto')
+    .map(v => ({...v, tipoAnomalia: 'desvio'}));
+
+  const abaixo = [
     ...a.valorZeroQtdPositiva.map(v => ({...v, tipoAnomalia: 'zero'})),
-    ...a.anomaliasValor.map(v => ({...v, tipoAnomalia: 'desvio'}))
+    ...a.anomaliasValor.filter(v => v.tipo === 'baixo').map(v => ({...v, tipoAnomalia: 'desvio'}))
   ];
-  if(valoresAtipicos.length){
-    // Ordena: R$ 0 primeiro, depois maiores desvios
-    valoresAtipicos.sort((x, y) => {
-      if(x.tipoAnomalia === 'zero' && y.tipoAnomalia !== 'zero') return -1;
-      if(y.tipoAnomalia === 'zero' && x.tipoAnomalia !== 'zero') return 1;
-      return Math.abs(y.desvio || 0) - Math.abs(x.desvio || 0);
-    });
-    const rows = valoresAtipicos.slice(0, 15).map(an => {
-      if(an.tipoAnomalia === 'zero'){
-        return `<tr>
-          <td>${an.produto}</td>
-          <td>${NOME_CAT[an.categoria] || an.categoria || '—'}</td>
-          <td>${an.vendedora || '—'}</td>
-          <td class="tnum" style="color:#e09e9a;">R$ 0,00</td>
-          <td class="tnum" style="color:#e09e9a;">⚠ valor zerado</td>
-        </tr>`;
-      } else {
-        const sinal = an.tipo === 'alto' ? '↑' : '↓';
-        const cor = an.tipo === 'alto' ? '#e09e9a' : '#d4b45a';
-        return `<tr>
-          <td>${an.produto}</td>
-          <td>${NOME_CAT[an.cat] || an.cat || '—'}</td>
-          <td>${an.vendedora || '—'}</td>
-          <td class="tnum">${fmtBRL(an.valorUnitario)}</td>
-          <td class="tnum" style="color:${cor};">${sinal} vs ${fmtBRL(an.mediaCategoria)}</td>
-        </tr>`;
-      }
-    }).join('');
-    html += secAud('valores-atipicos', `Valores atípicos`, valoresAtipicos.length, 'warn', `
-      <p>Vendas com valor R$ 0 (provável erro de digitação ou bonificação) ou com valor unitário muito diferente da média da categoria (descontos atípicos, premium ou erro de cadastro).</p>
-      <table><thead><tr><th>Produto</th><th>Categoria</th><th>Vendedora</th><th class="tnum">Valor Unit.</th><th class="tnum">Observação</th></tr></thead><tbody>${rows}</tbody></table>
-    `);
+
+  // Ordena por magnitude do desvio
+  acima.sort((x, y) => Math.abs(y.desvio || 0) - Math.abs(x.desvio || 0));
+  abaixo.sort((x, y) => {
+    // Zeros primeiro (mais críticos)
+    if(x.tipoAnomalia === 'zero' && y.tipoAnomalia !== 'zero') return -1;
+    if(y.tipoAnomalia === 'zero' && x.tipoAnomalia !== 'zero') return 1;
+    return Math.abs(y.desvio || 0) - Math.abs(x.desvio || 0);
+  });
+
+  function renderLinhaAtipica(an){
+    if(an.tipoAnomalia === 'zero'){
+      return `<tr>
+        <td>${an.produto}</td>
+        <td>${NOME_CAT[an.categoria] || an.categoria || '—'}</td>
+        <td>${an.vendedora || '—'}</td>
+        <td class="tnum" style="color:#e09e9a;">R$ 0,00</td>
+        <td class="tnum" style="color:#e09e9a;font-size:11px;">⚠ valor zerado</td>
+      </tr>`;
+    }
+    const sinal = an.tipo === 'alto' ? '↑' : '↓';
+    const cor = an.tipo === 'alto' ? '#e09e9a' : '#d4b45a';
+    const labelComparacao = an.ehPorModelo
+      ? `${sinal} habitual do modelo: ${fmtBRL(an.mediaCategoria)}`
+      : `${sinal} vs ${fmtBRL(an.mediaCategoria)}`;
+    return `<tr>
+      <td>${an.produto}</td>
+      <td>${NOME_CAT[an.cat] || an.cat || '—'}</td>
+      <td>${an.vendedora || '—'}</td>
+      <td class="tnum">${fmtBRL(an.valorUnitario)}</td>
+      <td class="tnum" style="color:${cor};font-size:11px;">${labelComparacao}</td>
+    </tr>`;
+  }
+
+  const totalAtipicos = acima.length + abaixo.length;
+  if(totalAtipicos > 0){
+    let bodyHtml = `
+      <p>Vendas com valor unitário muito diferente <strong>do valor habitual do mesmo produto</strong> no mês. Pode ser desconto autorizado, modelo especial, ou erro de digitação.</p>
+    `;
+
+    // Sub-seção: COBRADOS ACIMA
+    if(acima.length){
+      const rows = acima.slice(0, 12).map(renderLinhaAtipica).join('');
+      bodyHtml += `
+        <div class="atip-subgrupo">
+          <div class="atip-subtit atip-subtit-acima">
+            <span class="atip-subtit-bullet">↑</span>
+            Cobrados ACIMA do habitual
+            <span class="atip-subtit-count">${acima.length}</span>
+          </div>
+          <table>
+            <thead><tr><th>Produto</th><th>Categoria</th><th>Vendedora</th><th class="tnum">Valor Unit.</th><th class="tnum">Comparação</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    // Sub-seção: COBRADOS ABAIXO (inclui R$ 0)
+    if(abaixo.length){
+      const rows = abaixo.slice(0, 12).map(renderLinhaAtipica).join('');
+      bodyHtml += `
+        <div class="atip-subgrupo">
+          <div class="atip-subtit atip-subtit-abaixo">
+            <span class="atip-subtit-bullet">↓</span>
+            Cobrados ABAIXO do habitual
+            <span class="atip-subtit-count">${abaixo.length}</span>
+          </div>
+          <table>
+            <thead><tr><th>Produto</th><th>Categoria</th><th>Vendedora</th><th class="tnum">Valor Unit.</th><th class="tnum">Comparação</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    html += secAud('valores-atipicos', `Valores atípicos`, totalAtipicos, 'warn', bodyHtml);
   }
 
   // Quantidade zero, valor positivo (continua separado — é caso bem específico/raro)
@@ -3631,21 +3821,108 @@ function renderAuditoria(){
 
   // Possíveis duplicatas
   if(a.possiveisDuplicatas.length){
-    const rows = a.possiveisDuplicatas.slice(0,12).map(d=>`
+    const rows = a.possiveisDuplicatas.slice(0,12).map(d=>{
+      const am = d.amostra || {};
+      const detalheProduto = [
+        am.produto || '—',
+        am.tamanho ? `Tam ${am.tamanho}` : '',
+        am.cor || ''
+      ].filter(Boolean).join(' · ');
+      return `
       <tr>
-        <td>${d.amostra ? d.amostra.produto : (d.produto || '—')}</td>
-        <td>${d.amostra ? d.amostra.vendedora : (d.vendedora || '—')}</td>
+        <td>${detalheProduto}</td>
+        <td>${am.vendedora || '—'}</td>
         <td class="tnum">${d.ocorrencias}×</td>
-        <td class="tnum">${fmtBRL(d.amostra ? d.amostra.valor : (d.valor || 0))}</td>
-      </tr>`).join('');
+        <td class="tnum">${fmtBRL(am.valor || 0)}</td>
+      </tr>`;
+    }).join('');
     html += secAud('duplicatas', `Possíveis lançamentos duplicados`, a.possiveisDuplicatas.length, 'warn', `
-      <p>Mesma vendedora, mesmo produto, mesmo valor, <strong>no mesmo dia</strong>, lançado 5 ou mais vezes. Pode ser legítimo (vendas em peso pra mesma família, dia das mães, etc.), mas vale conferir.</p>
-      <table><thead><tr><th>Produto</th><th>Vendedora</th><th class="tnum">Vezes</th><th class="tnum">Valor</th></tr></thead><tbody>${rows}</tbody></table>
+      <p>Mesma vendedora vendendo o mesmo produto (com mesmo nome, cor, numeração e valor) <strong>3 ou mais vezes no mesmo dia</strong>. Pode ser legítimo (clientes diferentes comprando o mesmo modelo), mas vale conferir se não houve duplicação no lançamento. Meias são excluídas (produto de volume).</p>
+      <table><thead><tr><th>Produto · Tamanho · Cor</th><th>Vendedora</th><th class="tnum">Vezes</th><th class="tnum">Valor</th></tr></thead><tbody>${rows}</tbody></table>
     `);
   }
 
-  // Lançamentos da gestão (Edson, Gregory, Larissa Gomes Vieira, etc) — info, esperado
+  // ── E-COMMERCE: todas as vendas do Edson ──
+  if(a.ecommerce && a.ecommerce.length){
+    // Ordena por categoria + produto
+    const ordenado = [...a.ecommerce].sort((x,y)=>{
+      if(x.categoria !== y.categoria) return (x.categoria||'').localeCompare(y.categoria||'');
+      return (x.produto||'').localeCompare(y.produto||'');
+    });
+    let totalQtd = 0, totalValor = 0;
+    const rows = ordenado.map(item=>{
+      totalQtd += item.qtd;
+      totalValor += item.valor;
+      const detalhe = [
+        item.produto,
+        item.tamanho ? `Tam ${item.tamanho}` : '',
+        item.cor || ''
+      ].filter(Boolean).join(' · ');
+      return `
+      <tr>
+        <td>${detalhe}</td>
+        <td>${NOME_CAT[item.categoria] || item.categoria || '—'}</td>
+        <td class="tnum">${fmtInt(item.qtd)}</td>
+        <td class="tnum">${fmtBRL(item.valor)}</td>
+      </tr>`;
+    }).join('');
+    html += secAud('ecommerce', `E-commerce`, a.ecommerce.length, 'info', `
+      <p>Vendas realizadas pelo canal <strong>e-commerce da Loretto Scarpa</strong> (registradas no Kigi sob o nome do Edson). Não geram comissão das vendedoras da loja física. Total: <strong>${fmtInt(totalQtd)} peças · ${fmtBRL(totalValor)}</strong>.</p>
+      <table><thead><tr><th>Produto · Tamanho · Cor</th><th>Categoria</th><th class="tnum">Qtd</th><th class="tnum">Valor</th></tr></thead><tbody>${rows}</tbody></table>
+    `);
+  }
+
+  // ── PARCERIAS: vendas do Gregory/Larissa/Loretto Scarpa com valor atípico ──
+  if(a.parcerias && a.parcerias.length){
+    // Ordena por nome
+    const ordenado = [...a.parcerias].sort((x,y)=>{
+      if(x.nomeOriginal !== y.nomeOriginal) return (x.nomeOriginal||'').localeCompare(y.nomeOriginal||'');
+      return (x.produto||'').localeCompare(y.produto||'');
+    });
+    let totalQtd = 0, totalValor = 0;
+    const rows = ordenado.map(item=>{
+      totalQtd += item.qtd;
+      totalValor += item.valor;
+      const detalhe = [
+        item.produto,
+        item.tamanho ? `Tam ${item.tamanho}` : '',
+        item.cor || ''
+      ].filter(Boolean).join(' · ');
+      const valorUnit = item.valorUnitario || (item.qtd > 0 ? item.valor / item.qtd : 0);
+      const valorMedio = item.mediaCategoria || 0;
+      return `
+      <tr>
+        <td>${detalhe}</td>
+        <td>${item.nomeOriginal}</td>
+        <td>${NOME_CAT[item.categoria] || item.categoria || '—'}</td>
+        <td class="tnum">${fmtBRL(valorUnit)}</td>
+        <td class="tnum" style="color:var(--cr3);font-size:10px;">${valorMedio > 0 ? `vs. média ${fmtBRL(valorMedio)}` : '—'}</td>
+      </tr>`;
+    }).join('');
+    html += secAud('parcerias', `Parcerias (cortesias e descontos especiais)`, a.parcerias.length, 'info', `
+      <p>Vendas de Gregory, Larissa ou "Loretto Scarpa" com valor unitário <strong>fora do padrão da categoria</strong> — geralmente sapatos de parceria, cortesia ou desconto especial não comercial. Total: <strong>${fmtInt(totalQtd)} peças · ${fmtBRL(totalValor)}</strong>.</p>
+      <table><thead><tr><th>Produto · Tamanho · Cor</th><th>Por</th><th>Categoria</th><th class="tnum">Valor Unit.</th><th class="tnum">Comparação</th></tr></thead><tbody>${rows}</tbody></table>
+    `);
+  }
+
+  // Lançamentos da gestão (Gregory/Larissa/Loretto Scarpa com valor normal + outros) — info
   if(a.lancamentosGestao && a.lancamentosGestao.length){
+    // Descrições contextuais por nome
+    const descricoes = {
+      'gregory': 'Gestão (vendas com valor normal)',
+      'larissa gomes vieira': 'Gestão / Financeiro',
+      'larissa': 'Gestão',
+      'joice': 'Ex-vendedora (mantém histórico)',
+      'loretto scarpa': 'Vendedor genérico do sistema',
+      'yuri': 'Estoque'
+    };
+    function descricaoDe(nome){
+      const n = String(nome || '').toLowerCase();
+      for(const k in descricoes){
+        if(n.includes(k)) return descricoes[k];
+      }
+      return '';
+    }
     // Agrupa por nome
     const porNome = {};
     a.lancamentosGestao.forEach(l=>{
@@ -3655,15 +3932,21 @@ function renderAuditoria(){
       porNome[k].valor += l.valor;
       porNome[k].ocorrencias++;
     });
-    const rows = Object.entries(porNome).map(([nome, d])=>`
+    const rows = Object.entries(porNome).map(([nome, d])=>{
+      const desc = descricaoDe(nome);
+      const nomeHtml = desc
+        ? `<strong>${nome}</strong><br><span style="font-size:10px;color:var(--cr3);font-style:italic;">${desc}</span>`
+        : `<strong>${nome}</strong>`;
+      return `
       <tr>
-        <td>${nome}</td>
+        <td>${nomeHtml}</td>
         <td class="tnum">${d.ocorrencias}</td>
         <td class="tnum">${fmtInt(d.qtd)}</td>
         <td class="tnum">${fmtBRL(d.valor)}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     html += secAud('gestao', `Lançamentos de gestão (não comissionáveis)`, a.lancamentosGestao.length, 'info', `
-      <p>Lançamentos feitos por pessoas da gestão ou ex-vendedoras (Edson, Gregory, Larissa, Joice, etc). <strong>Não geram comissão</strong> — é normal aparecerem no relatório do Kigi para fins administrativos.</p>
+      <p>Lançamentos de gestão e ex-vendedoras com valores normais (que <strong>não</strong> caracterizam parceria/cortesia, e-commerce, etc). Não geram comissão das vendedoras da loja.</p>
       <table><thead><tr><th>Nome no Kigi</th><th class="tnum">Lançamentos</th><th class="tnum">Qtd Total</th><th class="tnum">Valor Total</th></tr></thead><tbody>${rows}</tbody></table>
     `);
   }

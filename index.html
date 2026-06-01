@@ -1670,24 +1670,6 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
     <!-- ═════ FECHAMENTO POR VENDEDORA ═════ -->
     <div class="slbl">Fechamento por Vendedora</div>
     <div class="vend-grid" id="vend-grid"></div>
-
-    <!-- ═════ EXPORTAÇÃO ═════ -->
-    <div class="slbl">Exportar para Contabilidade</div>
-    <div class="exp-wrap">
-      <div class="exp-tit">Downloads do Mês</div>
-      <div class="exp-btns">
-        <button class="bup primario" onclick="exportarExcel()">Excel — Folha Completa (Contabilidade)</button>
-        <button class="bup" onclick="exportarCalendarioVendas()">Excel — Calendário de Vendas</button>
-        <button class="bup" onclick="exportarPorVendedora()">Excel — Uma Aba por Vendedora</button>
-        <button class="bup" onclick="exportarPDF()">PDF — Resumo Geral</button>
-      </div>
-      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--oud2);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <div style="font-size:10px;letter-spacing:1.5px;color:var(--cr3);text-transform:uppercase;">
-          <span style="color:#6dbf6d;">●</span> Fechamento salvo automaticamente neste navegador
-        </div>
-        <button class="bup" style="padding:7px 14px;font-size:9px;letter-spacing:2px;border-color:rgba(192,80,74,.4);color:#e09e9a;" onclick="excluirFechamentoMes()">Excluir Fechamento</button>
-      </div>
-    </div>
   </div>
 
   <!-- ═════ EMPTY STATE ═════ -->
@@ -1709,6 +1691,26 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
       </div>
     </div>
     <div class="fx-grid" id="fx-grid"></div>
+  </div>
+
+  <!-- ═════ EXPORTAÇÃO (após preencher vendedoras + equipe fixa) ═════ -->
+  <div id="export-area" style="display:none;margin-top:36px;">
+    <div class="slbl">Exportar para Contabilidade</div>
+    <div class="exp-wrap">
+      <div class="exp-tit">Downloads do Mês</div>
+      <div class="exp-btns">
+        <button class="bup primario" onclick="exportarExcel()">Excel — Folha Completa (Contabilidade)</button>
+        <button class="bup" onclick="exportarCalendarioVendas()">Excel — Calendário de Vendas</button>
+        <button class="bup" onclick="exportarPorVendedora()">Excel — Uma Aba por Vendedora</button>
+        <button class="bup" onclick="exportarPDF()">PDF — Resumo Geral</button>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--oud2);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="font-size:10px;letter-spacing:1.5px;color:var(--cr3);text-transform:uppercase;">
+          <span style="color:#6dbf6d;">●</span> Fechamento salvo automaticamente neste navegador
+        </div>
+        <button class="bup" style="padding:7px 14px;font-size:9px;letter-spacing:2px;border-color:rgba(192,80,74,.4);color:#e09e9a;" onclick="excluirFechamentoMes()">Excluir Fechamento</button>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -3164,6 +3166,7 @@ function renderizar(){
   if(!RESULTADO) return;
   document.getElementById('empty-area').style.display = 'none';
   document.getElementById('resumo-area').style.display = '';
+  document.getElementById('export-area').style.display = '';
 
   // Renderiza auditoria e config de metas
   renderAuditoria();
@@ -3856,6 +3859,7 @@ function excluirFechamentoMes(){
     fsApagar('horasExtras', idHE());
     RESULTADO = null;
     document.getElementById('resumo-area').style.display = 'none';
+    document.getElementById('export-area').style.display = 'none';
     document.getElementById('empty-area').style.display = '';
     atualizarMesUI();
     toast(`Fechamento de ${mes}/${ano} excluído`, 'ok');
@@ -3876,6 +3880,7 @@ function carregarMesAtual(){
     // Sem fechamento salvo — limpa visual
     if(RESULTADO) RESULTADO = null;
     document.getElementById('resumo-area').style.display = 'none';
+    document.getElementById('export-area').style.display = 'none';
     document.getElementById('auditoria-area').style.display = 'none';
     document.getElementById('empty-area').style.display = '';
     renderMetasResumo(); // Metas do mês continuam

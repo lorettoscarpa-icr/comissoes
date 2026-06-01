@@ -1676,7 +1676,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
     <div class="exp-wrap">
       <div class="exp-tit">Downloads do Mês</div>
       <div class="exp-btns">
-        <button class="bup primario" onclick="exportarExcel()">Excel — Contabilidade</button>
+        <button class="bup primario" onclick="exportarExcel()">Excel — Folha Completa (Contabilidade)</button>
         <button class="bup" onclick="exportarCalendarioVendas()">Excel — Calendário de Vendas</button>
         <button class="bup" onclick="exportarPorVendedora()">Excel — Uma Aba por Vendedora</button>
         <button class="bup" onclick="exportarPDF()">PDF — Resumo Geral</button>
@@ -1705,7 +1705,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
       <div>
         <div class="lbl">Total a Pagar — Equipe Fixa</div>
         <div class="val" id="fx-total-folha">R$ 0,00</div>
-        <div class="sub">salários + vales · horas extras calculadas pela contabilidade</div>
+        <div class="sub">salários − adiantamentos · horas extras calculadas pela contabilidade</div>
       </div>
     </div>
     <div class="fx-grid" id="fx-grid"></div>
@@ -1925,7 +1925,7 @@ function trocarTab(tab){
 
 const VENDEDORAS = ['Jhennifer', 'Ialey', 'Michelly', 'Natália'];
 
-// Equipe fixa — NÃO comissionados. Recebem salário fixo + vale (benefício, soma) + horas extras (só registro)
+// Equipe fixa — NÃO comissionados. Recebem salário fixo + horas extras (só registro); adiantamento desconta.
 const EQUIPE_FIXA = [
   {nome: 'Yuri',    cargo: 'Estoquista'},
   {nome: 'Edson',   cargo: 'Operador de E-commerce'},
@@ -3600,8 +3600,8 @@ function atualizarHorasExtras(vendedora, valorRaw){
 }
 
 // ═════════════════════════ EQUIPE FIXA ═════════════════════════
-// Funcionários não comissionados (salário fixo + vale + horas extras).
-// Total a pagar = salário fixo + vale (benefício, soma).
+// Funcionários não comissionados (salário fixo + horas extras; adiantamento desconta).
+// Total a pagar = salário fixo − adiantamento (horas extras: contabilidade calcula).
 // Horas extras: só registro de horas — a contabilidade calcula o valor.
 // Independente do arquivo do Kigi: sempre visível, salvo por mês.
 function idFixa(){
@@ -3631,15 +3631,15 @@ function salvarFuncFixo(nome, campo, valor){
   fsSalvar('equipeFixa', idFixa(), obj);
 }
 function totalFuncFixo(nome){
-  // Total a pagar = salário fixo + vale − adiantamento (horas extras não entram — contabilidade calcula)
+  // Total a pagar = salário fixo − adiantamento (horas extras não entram — contabilidade calcula)
   const f = lerFuncFixo(nome);
-  return (f.salario || 0) + (f.vale || 0) - lerAdiantamento(nome);
+  return (f.salario || 0) - lerAdiantamento(nome);
 }
 function atualizarFuncFixo(nome, campo, valorRaw){
   const v = parseNumBR(valorRaw);
   salvarFuncFixo(nome, campo, v);
   // Atualiza o total do card sem re-renderizar (não perde o foco do input)
-  if(campo === 'salario' || campo === 'vale'){
+  if(campo === 'salario'){
     const el = document.getElementById(`fx-total-${nome}`);
     if(el) el.textContent = fmtBRL(totalFuncFixo(nome));
   }
@@ -3681,7 +3681,7 @@ function atualizarAdiantamento(nome, valorRaw){
     const el = document.getElementById(`total-pagar-${nome}`);
     if(el) el.textContent = fmtBRL(com - v);
   }
-  // Fixo: total a pagar = salário + vale − adiantamento
+  // Fixo: total a pagar = salário − adiantamento
   if(EQUIPE_FIXA.some(e => e.nome === nome)){
     const el = document.getElementById(`fx-total-${nome}`);
     if(el) el.textContent = fmtBRL(totalFuncFixo(nome));
@@ -3722,16 +3722,6 @@ function renderEquipeFixa(){
           </div>
         </div>
         <div class="fx-field">
-          <div class="fx-flbl">Vale <span class="fx-nota">(benefício · soma)</span></div>
-          <div class="fx-input-wrap">
-            <span class="fx-prefixo">R$</span>
-            <input type="text" class="fx-input" inputmode="decimal"
-                   value="${f.vale > 0 ? formatarNum(f.vale) : ''}"
-                   placeholder="0,00"
-                   oninput="atualizarFuncFixo('${e.nome}', 'vale', this.value)">
-          </div>
-        </div>
-        <div class="fx-field">
           <div class="fx-flbl">Adiantamento <span class="fx-nota">(Larissa · desconta · em branco = não houve)</span></div>
           <div class="fx-input-wrap">
             <span class="fx-prefixo">R$</span>
@@ -3741,7 +3731,7 @@ function renderEquipeFixa(){
                    oninput="atualizarAdiantamento('${e.nome}', this.value)">
           </div>
         </div>
-        <div class="fx-field">
+        <div class="fx-field fx-field-full">
           <div class="fx-flbl">Horas Extras <span class="fx-nota">(contabilidade calcula)</span></div>
           <div class="fx-input-wrap">
             <input type="text" class="fx-input" inputmode="decimal"
@@ -5543,23 +5533,29 @@ function exportarExcel(){
   aplicarFormatoBRL(wsDet, ['D','E'], 4);
   XLSX.utils.book_append_sheet(wb, wsDet, 'Comissões');
 
-  // ── ABA 2: Horas Extras ──
+  // ── ABA 2: Horas Extras (todos os colaboradores) ──
   const horasArr = [
     ['LORETTO SCARPA — HORAS EXTRAS'],
     [`${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`],
     [],
     ['Importante: a contabilidade deve calcular o valor das horas extras separadamente (folha de pagamento).'],
     [],
-    ['Vendedora','Quantidade de Horas']
+    ['Colaborador','Função','Quantidade de Horas']
   ];
+  let totalHorasFixos = 0;
   VENDEDORAS.forEach(v=>{
     const he = lerHorasExtras(v);
-    horasArr.push([v, he.horas || 0]);
+    horasArr.push([v, 'Vendedora', he.horas || 0]);
+  });
+  EQUIPE_FIXA.forEach(e=>{
+    const fx = lerFuncFixo(e.nome);
+    totalHorasFixos += fx.horas || 0;
+    horasArr.push([e.nome, e.cargo, fx.horas || 0]);
   });
   horasArr.push([]);
-  horasArr.push(['TOTAL DO MÊS', totalHorasGeral]);
+  horasArr.push(['TOTAL DO MÊS', '', totalHorasGeral + totalHorasFixos]);
   const wsHoras = XLSX.utils.aoa_to_sheet(horasArr);
-  wsHoras['!cols'] = [{wch:18},{wch:24}];
+  wsHoras['!cols'] = [{wch:18},{wch:22},{wch:24}];
   XLSX.utils.book_append_sheet(wb, wsHoras, 'Horas Extras');
 
   // ── ABA 3: Bônus de Meta ──
@@ -5599,27 +5595,49 @@ function exportarExcel(){
     XLSX.utils.book_append_sheet(wb, wsBonus, 'Bônus');
   }
 
-  // ── ABA 4: Resumo Geral ──
-  const resumoArr = [
-    ['LORETTO SCARPA — RESUMO PARA CONTABILIDADE'],
+  // ── ABA 4: Folha Geral — TODOS OS COLABORADORES (comissionados + fixos) ──
+  const folhaArr = [
+    ['LORETTO SCARPA — FOLHA GERAL PARA CONTABILIDADE'],
     [`${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`],
+    [`Gerado em: ${new Date().toLocaleString('pt-BR')}`],
+    ['Adiantamento já descontado do Total a Pagar. Horas extras: a contabilidade calcula o valor (folha). Bônus Caju é pago à parte.'],
     [],
-    ['Vendedora','Comissão (R$)','Horas Extras (h)','Bônus Caju (R$)']
+    ['Colaborador','Função','Comissão (R$)','Salário Fixo (R$)','Horas Extras (h)','Adiantamento (R$)','Bônus Caju (R$)','Total a Pagar (R$)']
   ];
+  let somaComissao = 0, somaSalario = 0, somaHoras = 0, somaAdiant = 0, somaBonus = 0, somaTotal = 0;
+  // Vendedoras (comissionadas)
   VENDEDORAS.forEach(v=>{
     const d = result[v];
     const he = lerHorasExtras(v);
     const bonus = bonusManualVendedora(v, d, atingimentos, metas);
-    resumoArr.push([v, d._total.comissao, he.horas || 0, bonus.total]);
+    const adiant = lerAdiantamento(v);
+    const total = d._total.comissao - adiant;
+    folhaArr.push([v, 'Vendedora', d._total.comissao, '', he.horas || 0, adiant, bonus.total, total]);
+    somaComissao += d._total.comissao;
+    somaHoras += he.horas || 0;
+    somaAdiant += adiant;
+    somaBonus += bonus.total;
+    somaTotal += total;
   });
-  resumoArr.push([]);
-  resumoArr.push(['TOTAL', comissaoGeral, totalHorasGeral, totalBonusGeral]);
-  const wsResumo = XLSX.utils.aoa_to_sheet(resumoArr);
-  wsResumo['!cols'] = [{wch:18},{wch:16},{wch:18},{wch:16}];
-  aplicarFormatoBRL(wsResumo, ['B','D'], 3);
-  XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
+  // Equipe fixa (não comissionados)
+  EQUIPE_FIXA.forEach(e=>{
+    const fx = lerFuncFixo(e.nome);
+    const adiant = lerAdiantamento(e.nome);
+    const total = (fx.salario || 0) - adiant;
+    folhaArr.push([e.nome, e.cargo, '', fx.salario || 0, fx.horas || 0, adiant, '', total]);
+    somaSalario += fx.salario || 0;
+    somaHoras += fx.horas || 0;
+    somaAdiant += adiant;
+    somaTotal += total;
+  });
+  folhaArr.push([]);
+  folhaArr.push(['TOTAL', '', somaComissao, somaSalario, somaHoras, somaAdiant, somaBonus, somaTotal]);
+  const wsFolha = XLSX.utils.aoa_to_sheet(folhaArr);
+  wsFolha['!cols'] = [{wch:14},{wch:22},{wch:14},{wch:16},{wch:16},{wch:16},{wch:16},{wch:18}];
+  aplicarFormatoBRL(wsFolha, ['C','D','F','G','H'], 5);
+  XLSX.utils.book_append_sheet(wb, wsFolha, 'Folha Geral');
 
-  const nomeArq = `loretto-comissoes-${MESES[DATA_ATUAL.getMonth()].toLowerCase()}-${DATA_ATUAL.getFullYear()}.xlsx`;
+  const nomeArq = `loretto-folha-${MESES[DATA_ATUAL.getMonth()].toLowerCase()}-${DATA_ATUAL.getFullYear()}.xlsx`;
   XLSX.writeFile(wb, nomeArq);
   toast('Excel exportado','ok');
 }

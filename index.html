@@ -8,6 +8,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}</script>
 <style>
 :root{
   --v0:#1f2f14;--v1:#2a3d1c;--v2:#364f24;--v3:#4a6330;
@@ -642,6 +644,18 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 }
 .fx-unit{font-size:11px;color:var(--cr3);letter-spacing:1px;}
 @media(max-width:640px){ .fx-fields{grid-template-columns:1fr;} }
+
+/* ── PAGAMENTOS (folha realizada · cards padrão do painel) ── */
+.pag-grid{display:flex;flex-direction:column;gap:18px;margin-bottom:28px;}
+.pag-cols{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;margin-top:4px;}
+.pag-sec-tit{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--ou);margin:10px 0 4px;font-weight:600;}
+.pag-row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--oud2);font-size:12px;}
+.pag-row .d{color:var(--cr2);letter-spacing:.3px;}
+.pag-row .v{color:var(--cr);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.pag-row .v.desc{color:#e09e9a;}
+.pag-sub{display:flex;justify-content:space-between;gap:12px;padding:9px 0 0;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--cr3);}
+.pag-sub .v{font-variant-numeric:tabular-nums;color:var(--cr2);}
+@media(max-width:640px){ .pag-cols{grid-template-columns:1fr;} }
 
 /* ── BÔNUS DE META ── */
 .bn-wrap{
@@ -1556,6 +1570,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   <button class="tab-btn ativa" data-tab="mensal" onclick="trocarTab('mensal')">Mensal</button>
   <button class="tab-btn" data-tab="comp" onclick="trocarTab('comp')">Comparativo</button>
   <button class="tab-btn" data-tab="hist" onclick="trocarTab('hist')">Histórico</button>
+  <button class="tab-btn" data-tab="pag" onclick="trocarTab('pag')">Pagamentos</button>
 </div>
 
 <main id="sec-mensal">
@@ -1732,6 +1747,33 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
     <p>Linha do Tempo de Fechamentos</p>
   </div>
   <div id="hist-content"></div>
+</main>
+
+<main id="sec-pag" style="display:none;">
+  <div class="titulo-pag">
+    <h1>Pagamentos</h1>
+    <div class="linha"></div>
+    <p>Folha Realizada — Recibos da Contabilidade</p>
+  </div>
+
+  <!-- ═════ IMPORTAR RECIBOS DA CONTABILIDADE ═════ -->
+  <div class="slbl">Importar Recibos <span class="slbl-tag">PDF da Contabilidade</span></div>
+  <div class="upload-wrap" id="pag-up-wrap" onclick="document.getElementById('pag-input').click()"
+       ondragover="event.preventDefault();this.classList.add('drag')"
+       ondragleave="this.classList.remove('drag')"
+       ondrop="event.preventDefault();this.classList.remove('drag');if(event.dataTransfer.files[0])importarRecibosPDF(event.dataTransfer.files[0])">
+    <div class="upload-icon-vazio">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+    </div>
+    <div class="upload-titulo">Arraste o PDF de recibos ou clique aqui</div>
+    <div class="upload-desc">Recibo de Pagamento (.pdf) gerado pela contabilidade — lê o valor líquido pago de cada colaborador</div>
+    <div class="upload-btn-wrap">
+      <input type="file" id="pag-input" accept=".pdf" style="display:none" onchange="importarRecibosPDF(event.target.files[0])">
+    </div>
+  </div>
+  <div class="log-wrap" id="pag-log" style="display:none;"><div class="log-tit">Leitura do PDF</div><div id="pag-log-body"></div></div>
+
+  <div id="pag-content"></div>
 </main>
 
 </div><!-- /tela-dash -->
@@ -1911,7 +1953,7 @@ window.inicializarDashboardLogado = async function(){
 
 // ═════════════════════════ TABS ═════════════════════════
 function trocarTab(tab){
-  ['mensal','comp','hist'].forEach(t=>{
+  ['mensal','comp','hist','pag'].forEach(t=>{
     const sec = document.getElementById(`sec-${t}`);
     if(sec) sec.style.display = (t === tab ? '' : 'none');
   });
@@ -1920,6 +1962,7 @@ function trocarTab(tab){
   });
   if(tab === 'comp') renderComparativo();
   if(tab === 'hist') renderHistorico();
+  if(tab === 'pag') renderPagamentos();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -1943,6 +1986,7 @@ const FS_CACHE = {
   horasExtras: {},   // 'YYYY-M' -> { Vendedora: { horas } }
   equipeFixa: {},    // 'YYYY-M' -> { Funcionario: { salario, vale, horas } }
   adiantamentos: {}, // 'YYYY-M' -> { Colaborador: valor } (Larissa preenche; desconta do total)
+  pagamentos: {},    // 'YYYY-M' -> { Colaborador: { nomeCompleto, funcao, salarioBase, vencimentos, descontos, liquido, itens:[] } }
   carregado: false,
   carregando: false
 };
@@ -3363,13 +3407,14 @@ async function inicializarFirestoreCache(){
 
   try {
     // Carrega todas as coleções em paralelo
-    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant] = await Promise.all([
+    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag] = await Promise.all([
       getDocs(collection(db, 'fechamentos')),
       getDocs(collection(db, 'metas')),
       getDocs(collection(db, 'atingimentos')),
       getDocs(collection(db, 'horasExtras')),
       getDocs(collection(db, 'equipeFixa')),
-      getDocs(collection(db, 'adiantamentos'))
+      getDocs(collection(db, 'adiantamentos')),
+      getDocs(collection(db, 'pagamentos'))
     ]);
 
     snapFech.forEach(d => { FS_CACHE.fechamentos[d.id] = d.data(); });
@@ -3378,6 +3423,7 @@ async function inicializarFirestoreCache(){
     snapHE.forEach(d => { FS_CACHE.horasExtras[d.id] = d.data(); });
     snapFixa.forEach(d => { FS_CACHE.equipeFixa[d.id] = d.data(); });
     snapAdiant.forEach(d => { FS_CACHE.adiantamentos[d.id] = d.data(); });
+    snapPag.forEach(d => { FS_CACHE.pagamentos[d.id] = d.data(); });
 
     FS_CACHE.carregado = true;
     console.log('Firestore: cache carregado',
@@ -3447,6 +3493,12 @@ async function migrarLocalStorageParaFirestore(){
         idDoc = `${mAdiant[1]}-${mAdiant[2]}`;
         colecao = 'adiantamentos';
       }
+      // loretto-pag-YYYY-M
+      const mPag = chave.match(/^loretto-pag-(\d{4})-(\d{1,2})$/);
+      if(mPag){
+        idDoc = `${mPag[1]}-${mPag[2]}`;
+        colecao = 'pagamentos';
+      }
 
       if(!colecao || !idDoc) continue;
 
@@ -3486,6 +3538,7 @@ function fsSalvar(colecao, id, dados, opcoes){
     else if(colecao === 'horasExtras') chaveLS = `loretto-he-${id}`;
     else if(colecao === 'equipeFixa') chaveLS = `loretto-fixa-${id}`;
     else if(colecao === 'adiantamentos') chaveLS = `loretto-adiant-${id}`;
+    else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
     if(chaveLS) localStorage.setItem(chaveLS, JSON.stringify(dados));
   } catch(e){}
 
@@ -3527,6 +3580,7 @@ function fsApagar(colecao, id){
     else if(colecao === 'horasExtras') chaveLS = `loretto-he-${id}`;
     else if(colecao === 'equipeFixa') chaveLS = `loretto-fixa-${id}`;
     else if(colecao === 'adiantamentos') chaveLS = `loretto-adiant-${id}`;
+    else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
     if(chaveLS) localStorage.removeItem(chaveLS);
   } catch(e){}
 
@@ -3549,6 +3603,7 @@ function fsLer(colecao, id){
     else if(colecao === 'horasExtras') chaveLS = `loretto-he-${id}`;
     else if(colecao === 'equipeFixa') chaveLS = `loretto-fixa-${id}`;
     else if(colecao === 'adiantamentos') chaveLS = `loretto-adiant-${id}`;
+    else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
     if(chaveLS){
       const raw = localStorage.getItem(chaveLS);
       if(raw) return JSON.parse(raw);
@@ -3752,6 +3807,272 @@ function renderEquipeFixa(){
   atualizarTotalFolhaFixa();
 }
 
+// ═════════════════════════ PAGAMENTOS (recibos da contabilidade) ═════════════════════════
+function idPag(){ return `${DATA_ATUAL.getFullYear()}-${DATA_ATUAL.getMonth()+1}`; }
+function lerPagamentos(){ return fsLer('pagamentos', idPag()) || {}; }
+function salvarPagamentos(obj){ fsSalvar('pagamentos', idPag(), obj); }
+
+// Nome completo (PDF, CAIXA ALTA) -> nome de exibição conhecido (pelo primeiro nome)
+const MAPA_PRIMEIRO_NOME = {
+  'JHENNIFER':'Jhennifer','IALEY':'Ialey','MICHELLY':'Michelly','NATALIA':'Natália',
+  'YURI':'Yuri','EDSON':'Edson','GUSTAVO':'Gustavo','GREGORY':'Gregory','LARISSA':'Larissa'
+};
+function nomeExib(nomeCompleto){
+  const prim = (nomeCompleto||'').trim().split(/\s+/)[0].toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return MAPA_PRIMEIRO_NOME[prim] || (nomeCompleto||'').trim();
+}
+function _numRecibo(s){
+  if(s == null) return null;
+  const t = String(s).trim();
+  if(!/[0-9]/.test(t)) return null;
+  const v = parseFloat(t.replace(/\./g,'').replace(',','.'));
+  return isNaN(v) ? null : v;
+}
+
+// Lê o PDF de recibos. Layout (consistente): 1 colaborador por página, via de cima.
+// Soma das colunas Vencimentos e Descontos da tabela de itens = totais do recibo; líquido = V − D.
+async function parseRecibosPDF(arrayBuffer){
+  if(!window.pdfjsLib) throw new Error('pdf.js não carregou (sem internet?)');
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  const registros = [];
+  for(let pg=1; pg<=pdf.numPages; pg++){
+    const page = await pdf.getPage(pg);
+    const H = page.getViewport({scale:1}).height;
+    const tc = await page.getTextContent();
+    const items = [];
+    tc.items.forEach(it=>{
+      const tr = it.transform;
+      if(Math.abs(tr[1])>0.5 || Math.abs(tr[2])>0.5) return; // texto rotacionado (assinatura)
+      const x = tr[4], top = H - tr[5], s = (it.str||'').trim();
+      if(!s || x > 520 || top > H/2) return;                 // só a via de cima; ignora coluna girada
+      items.push({x, top, s});
+    });
+    if(!items.length) continue;
+    items.sort((a,b)=> a.top - b.top || a.x - b.x);
+    const linhas = [];
+    items.forEach(it=>{
+      let L = linhas.find(l=> Math.abs(l.top - it.top) <= 3);
+      if(!L){ L = {top: it.top, toks: []}; linhas.push(L); }
+      L.toks.push(it);
+    });
+    linhas.forEach(l=> l.toks.sort((a,b)=> a.x - b.x));
+    const txt = l => l.toks.map(t=>t.s).join(' ');
+
+    let nomeCompleto = '', funcao = '', salarioBase = null;
+    const itens = [];
+    for(let i=0;i<linhas.length;i++){
+      const t = txt(linhas[i]);
+      if(/Nome do Funcion/i.test(t) && linhas[i+1]){
+        const nm = linhas[i+1].toks.filter(k=> k.x>=60 && k.x<=370).map(k=>k.s).join(' ').trim();
+        if(nm && !nomeCompleto) nomeCompleto = nm;
+      }
+      if(/Admiss/i.test(t) && !funcao){
+        const fn = linhas[i].toks.filter(k=> k.x>=60 && k.x<=370 && !/Admiss/i.test(k.s) && !/\d{2}\/\d{2}\/\d{4}/.test(k.s)).map(k=>k.s).join(' ').trim();
+        if(fn) funcao = fn;
+      }
+    }
+    // itens da tabela (top entre 95 e 285)
+    linhas.forEach(l=>{
+      if(l.top < 95 || l.top > 285) return;
+      const codTok = l.toks.find(k=> k.x>=18 && k.x<46 && /^\d+$/.test(k.s));
+      const desc = l.toks.filter(k=> k.x>=46 && k.x<160).map(k=>k.s).join(' ').trim();
+      const refTok  = l.toks.find(k=> k.x>=305 && k.x<350);
+      const vencTok = l.toks.find(k=> k.x>=385 && k.x<435);
+      const descTok = l.toks.find(k=> k.x>=460 && k.x<515);
+      const venc = vencTok ? _numRecibo(vencTok.s) : null;
+      const dsc  = descTok ? _numRecibo(descTok.s) : null;
+      if(!desc) return;
+      if(venc==null && dsc==null) return;
+      if(/Descri/i.test(desc)) return; // cabeçalho
+      itens.push({codigo: codTok?codTok.s:'', descricao: desc, referencia: refTok?refTok.s:'', venc: venc||0, desc: dsc||0});
+    });
+    // salário base (linha de resumo top ~345-356, número à esquerda)
+    linhas.forEach(l=>{
+      if(l.top>=344 && l.top<=357 && salarioBase==null){
+        const sb = l.toks.find(k=> k.x<100 && /[0-9]/.test(k.s));
+        if(sb) salarioBase = _numRecibo(sb.s);
+      }
+    });
+    if(!nomeCompleto || !itens.length) continue;
+    const vencimentos = itens.reduce((s,i)=> s+(i.venc||0), 0);
+    const descontos   = itens.reduce((s,i)=> s+(i.desc||0), 0);
+    registros.push({nomeCompleto, funcao, salarioBase, vencimentos, descontos, liquido: vencimentos - descontos, itens});
+  }
+  return registros;
+}
+
+async function importarRecibosPDF(file){
+  if(!file) return;
+  const log = document.getElementById('pag-log');
+  const body = document.getElementById('pag-log-body');
+  log.style.display='';
+  body.innerHTML = '<div style="font-size:12px;color:var(--cr3);padding:4px 0;">Lendo PDF…</div>';
+  try{
+    const buf = await file.arrayBuffer();
+    const regs = await parseRecibosPDF(buf);
+    if(!regs.length){
+      body.innerHTML = '<div style="font-size:12px;color:#e09e9a;padding:4px 0;">Nenhum recibo reconhecido. Confira se é o PDF de recibos da contabilidade.</div>';
+      return;
+    }
+    const obj = {};
+    regs.forEach(r=>{ obj[nomeExib(r.nomeCompleto)] = r; });
+    salvarPagamentos(obj);
+    body.innerHTML = `<div style="font-size:12px;color:#6dbf6d;padding:4px 0;">✓ ${regs.length} recibos lidos: ${Object.keys(obj).join(', ')}</div>`;
+    renderPagamentos();
+    toast(`${regs.length} recibos importados`, 'ok');
+  }catch(e){
+    console.error(e);
+    body.innerHTML = `<div style="font-size:12px;color:#e09e9a;padding:4px 0;">Erro ao ler o PDF: ${e.message}</div>`;
+    toast('Falha ao ler o PDF','er');
+  }
+}
+
+function renderPagamentos(){
+  const cont = document.getElementById('pag-content');
+  if(!cont) return;
+  const dados = lerPagamentos();
+  // mesma ordem do painel: vendedoras → equipe fixa → demais (sócios)
+  const ordem = [...VENDEDORAS, ...EQUIPE_FIXA.map(e=>e.nome)];
+  const nomes = Object.keys(dados).sort((a,b)=>{
+    let ia = ordem.indexOf(a), ib = ordem.indexOf(b);
+    if(ia<0) ia = 99; if(ib<0) ib = 99;
+    return ia!==ib ? ia-ib : a.localeCompare(b,'pt-BR');
+  });
+  const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
+  if(!nomes.length){
+    cont.innerHTML = `<div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
+    return;
+  }
+  let totV=0,totD=0,totL=0,cards='';
+  nomes.forEach(n=>{
+    const r = dados[n];
+    totV+=r.vencimentos||0; totD+=r.descontos||0; totL+=r.liquido||0;
+    const itens = r.itens || [];
+    const proventos = itens.filter(i=> (i.venc||0) > 0)
+      .map(i=> `<div class="pag-row"><span class="d">${i.descricao}</span><span class="v">${fmtBRL(i.venc)}</span></div>`).join('') || '<div class="pag-row"><span class="d" style="color:var(--cr3)">—</span></div>';
+    const descontos = itens.filter(i=> (i.desc||0) > 0)
+      .map(i=> `<div class="pag-row"><span class="d">${i.descricao}</span><span class="v desc">${fmtBRL(i.desc)}</span></div>`).join('') || '<div class="pag-row"><span class="d" style="color:var(--cr3)">Sem descontos</span><span class="v">—</span></div>';
+    cards += `
+      <div class="vend-card">
+        <div class="vend-head">
+          <div class="vend-av">${avatarHTML(n)}</div>
+          <div class="vend-info">
+            <div class="vend-nome">${n}</div>
+            <div class="fx-cargo">${r.funcao||'—'}</div>
+          </div>
+          <div class="vend-total">
+            <div class="lbl">Líquido Pago</div>
+            <div class="val" style="color:#6dbf6d;">${fmtBRL(r.liquido)}</div>
+          </div>
+        </div>
+        <div class="pag-cols">
+          <div>
+            <div class="pag-sec-tit">Vencimentos</div>
+            ${proventos}
+            <div class="pag-sub"><span>Total Vencimentos</span><span class="v">${fmtBRL(r.vencimentos)}</span></div>
+          </div>
+          <div>
+            <div class="pag-sec-tit">Descontos</div>
+            ${descontos}
+            <div class="pag-sub"><span>Total Descontos</span><span class="v" style="color:#e09e9a;">${fmtBRL(r.descontos)}</span></div>
+          </div>
+        </div>
+      </div>`;
+  });
+  cont.innerHTML = `
+    <div class="fx-resumo">
+      <div>
+        <div class="lbl">Total Líquido Pago — ${mesAno}</div>
+        <div class="val">${fmtBRL(totL)}</div>
+        <div class="sub">${nomes.length} colaboradores · vencimentos ${fmtBRL(totV)} − descontos ${fmtBRL(totD)}</div>
+      </div>
+    </div>
+    <div class="slbl">Folha Realizada <span class="slbl-tag">do recibo da contabilidade</span></div>
+    <div class="pag-grid">${cards}</div>
+    <div class="exp-wrap">
+      <div class="exp-tit">Holerite Geral</div>
+      <div class="exp-btns">
+        <button class="bup primario" onclick="gerarHoleriteGeral()">PDF — Holerite Geral (todos os colaboradores)</button>
+      </div>
+      <div style="margin-top:10px;font-size:10px;letter-spacing:1px;color:var(--cr3);">Resumo da folha + detalhamento de cada colaborador (vencimentos, descontos e líquido).</div>
+    </div>`;
+}
+
+function gerarHoleriteGeral(){
+  const dados = lerPagamentos();
+  const nomes = Object.keys(dados).sort((a,b)=> a.localeCompare(b,'pt-BR'));
+  if(!nomes.length){ toast('Importe os recibos primeiro','er'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const mesAno = `${MESES[DATA_ATUAL.getMonth()]} de ${DATA_ATUAL.getFullYear()}`;
+
+  // Capa / cabeçalho
+  doc.setFillColor(31,47,20); doc.rect(0,0,210,30,'F');
+  doc.setTextColor(212,180,90); doc.setFont('helvetica','normal'); doc.setFontSize(20);
+  doc.text('LORETTO SCARPA', 14, 14);
+  doc.setFontSize(10); doc.setTextColor(235,212,138);
+  doc.text('Holerite Geral — Folha Realizada', 14, 22);
+  doc.setTextColor(40,40,40); doc.setFontSize(11);
+  doc.text(mesAno, 14, 40);
+  doc.setFontSize(9); doc.setTextColor(110,110,110);
+  doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 46);
+
+  // Resumo geral
+  let totV=0,totD=0,totL=0;
+  const bodyResumo = nomes.map(n=>{
+    const r = dados[n]; totV+=r.vencimentos||0; totD+=r.descontos||0; totL+=r.liquido||0;
+    return [n, r.funcao||'—', fmtBRL(r.vencimentos), fmtBRL(r.descontos), fmtBRL(r.liquido)];
+  });
+  bodyResumo.push(['TOTAL','', fmtBRL(totV), fmtBRL(totD), fmtBRL(totL)]);
+  const idxTot = bodyResumo.length - 1;
+  doc.autoTable({
+    head: [['Colaborador','Função','Vencimentos','Descontos','Líquido Pago']],
+    body: bodyResumo, startY: 54, theme:'grid',
+    headStyles:{fillColor:[42,61,28], textColor:[235,212,138], fontStyle:'bold', fontSize:9},
+    bodyStyles:{fontSize:9, textColor:[50,50,50]},
+    columnStyles:{0:{cellWidth:34,fontStyle:'bold'},1:{cellWidth:'auto'},2:{halign:'right',cellWidth:28},3:{halign:'right',cellWidth:28},4:{halign:'right',cellWidth:30,fontStyle:'bold'}},
+    didParseCell:(d)=>{ if(d.row.index===idxTot){ d.cell.styles.fillColor=[212,180,90]; d.cell.styles.textColor=[31,47,20]; d.cell.styles.fontStyle='bold'; } },
+    margin:{left:14,right:14}
+  });
+
+  // Detalhe por colaborador
+  nomes.forEach(n=>{
+    const r = dados[n];
+    doc.addPage();
+    doc.setFillColor(31,47,20); doc.rect(0,0,210,26,'F');
+    doc.setTextColor(212,180,90); doc.setFontSize(16); doc.text(n, 14, 15);
+    doc.setFontSize(9); doc.setTextColor(235,212,138);
+    doc.text(`${r.funcao||''}  •  ${mesAno}`, 14, 22);
+    doc.setTextColor(40,40,40); doc.setFontSize(10);
+    doc.text(`Líquido pago: ${fmtBRL(r.liquido)}`, 14, 38);
+
+    const body = (r.itens||[]).map(it=>[
+      it.descricao, it.referencia||'', it.venc? fmtBRL(it.venc):'', it.desc? fmtBRL(it.desc):''
+    ]);
+    body.push(['TOTAL','', fmtBRL(r.vencimentos), fmtBRL(r.descontos)]);
+    const it2 = body.length - 1;
+    doc.autoTable({
+      head: [['Descrição','Ref.','Vencimentos','Descontos']],
+      body, startY: 44, theme:'grid',
+      headStyles:{fillColor:[42,61,28], textColor:[235,212,138], fontStyle:'bold', fontSize:9},
+      bodyStyles:{fontSize:9, textColor:[50,50,50]},
+      columnStyles:{0:{cellWidth:'auto'},1:{halign:'right',cellWidth:20},2:{halign:'right',cellWidth:34},3:{halign:'right',cellWidth:34}},
+      didParseCell:(d)=>{ if(d.row.index===it2){ d.cell.styles.fillColor=[232,225,200]; d.cell.styles.fontStyle='bold'; d.cell.styles.textColor=[42,61,28]; } },
+      margin:{left:14,right:14}
+    });
+    const fy = doc.lastAutoTable.finalY + 8;
+    doc.setFillColor(212,180,90); doc.rect(14, fy, 182, 9, 'F');
+    doc.setTextColor(31,47,20); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('LÍQUIDO PAGO', 18, fy+6);
+    doc.text(fmtBRL(r.liquido), 192, fy+6, {align:'right'});
+    doc.setFont('helvetica','normal');
+  });
+
+  doc.save(`loretto-holerite-geral-${MESES[DATA_ATUAL.getMonth()].toLowerCase()}-${DATA_ATUAL.getFullYear()}.pdf`);
+  toast('Holerite geral gerado','ok');
+}
+
 // ═════════════════════════ SALVAMENTO DO FECHAMENTO ═════════════════════════
 function idFech(ano, mes){
   return `${ano}-${mes+1}`;
@@ -3888,6 +4209,7 @@ function carregarMesAtual(){
   }
   // Equipe fixa é independente do arquivo do Kigi — sempre renderiza pro mês atual
   renderEquipeFixa();
+  renderPagamentos();
 }
 function limparUploadUI(){
   setUploadVazio();

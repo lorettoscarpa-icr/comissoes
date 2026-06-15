@@ -12,7 +12,7 @@
 <script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}</script>
 <style>
 :root{
-  --v0:#1f2f14;--v1:#2a3d1c;--v2:#364f24;--v3:#4a6330;
+  --v0:#283d1a;--v1:#374f24;--v2:#46672f;--v3:#60813e;
   --ou:#d4b45a;--ou2:#ebd48a;--ou3:#b08840;
   --oud:rgba(212,180,90,.30);--oud2:rgba(212,180,90,.14);
   --cr:#f8f3e6;--cr2:rgba(248,243,230,.78);--cr3:rgba(248,243,230,.52);
@@ -1568,9 +1568,9 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 <!-- ═════════════ TABS DE NAVEGAÇÃO ═════════════ -->
 <div class="tabs-bar" id="tabs-bar">
   <button class="tab-btn ativa" data-tab="mensal" onclick="trocarTab('mensal')">Mensal</button>
+  <button class="tab-btn" data-tab="pag" onclick="trocarTab('pag')">Folha Realizada</button>
   <button class="tab-btn" data-tab="comp" onclick="trocarTab('comp')">Comparativo</button>
   <button class="tab-btn" data-tab="hist" onclick="trocarTab('hist')">Histórico</button>
-  <button class="tab-btn" data-tab="pag" onclick="trocarTab('pag')">Pagamentos</button>
 </div>
 
 <main id="sec-mensal">
@@ -1751,9 +1751,9 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 
 <main id="sec-pag" style="display:none;">
   <div class="titulo-pag">
-    <h1>Pagamentos</h1>
+    <h1>Folha Realizada</h1>
     <div class="linha"></div>
-    <p>Folha Realizada — Recibos da Contabilidade</p>
+    <p>Recibos da Contabilidade — o que foi realmente pago</p>
   </div>
 
   <!-- ═════ IMPORTAR RECIBOS DA CONTABILIDADE ═════ -->
@@ -3944,16 +3944,17 @@ function renderPagamentos(){
     cont.innerHTML = `<div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
     return;
   }
-  let totV=0,totD=0,totL=0,cards='';
-  nomes.forEach(n=>{
+  let totV=0,totD=0,totL=0;
+  nomes.forEach(n=>{ const r=dados[n]; totV+=r.vencimentos||0; totD+=r.descontos||0; totL+=r.liquido||0; });
+
+  function cardHTML(n){
     const r = dados[n];
-    totV+=r.vencimentos||0; totD+=r.descontos||0; totL+=r.liquido||0;
     const itens = r.itens || [];
     const proventos = itens.filter(i=> (i.venc||0) > 0)
       .map(i=> `<div class="pag-row"><span class="d">${i.descricao}</span><span class="v">${fmtBRL(i.venc)}</span></div>`).join('') || '<div class="pag-row"><span class="d" style="color:var(--cr3)">—</span></div>';
     const descontos = itens.filter(i=> (i.desc||0) > 0)
       .map(i=> `<div class="pag-row"><span class="d">${i.descricao}</span><span class="v desc">${fmtBRL(i.desc)}</span></div>`).join('') || '<div class="pag-row"><span class="d" style="color:var(--cr3)">Sem descontos</span><span class="v">—</span></div>';
-    cards += `
+    return `
       <div class="vend-card">
         <div class="vend-head">
           <div class="vend-av">${avatarHTML(n)}</div>
@@ -3979,7 +3980,26 @@ function renderPagamentos(){
           </div>
         </div>
       </div>`;
+  }
+
+  // divide em grupos, no padrão do painel
+  const GRUPOS = [
+    {tit:'Vendedoras', nomes: VENDEDORAS},
+    {tit:'Operação',   nomes: EQUIPE_FIXA.map(e=>e.nome)}
+  ];
+  const usados = new Set();
+  let grupos = '';
+  GRUPOS.forEach(g=>{
+    const membros = g.nomes.filter(n=> dados[n]);
+    if(!membros.length) return;
+    membros.forEach(n=> usados.add(n));
+    grupos += `<div class="slbl">${g.tit}</div><div class="pag-grid">${membros.map(cardHTML).join('')}</div>`;
   });
+  const socios = Object.keys(dados).filter(n=> !usados.has(n)).sort((a,b)=> a.localeCompare(b,'pt-BR'));
+  if(socios.length){
+    grupos += `<div class="slbl">Sócios</div><div class="pag-grid">${socios.map(cardHTML).join('')}</div>`;
+  }
+
   cont.innerHTML = `
     <div class="fx-resumo">
       <div>
@@ -3988,8 +4008,7 @@ function renderPagamentos(){
         <div class="sub">${nomes.length} colaboradores · vencimentos ${fmtBRL(totV)} − descontos ${fmtBRL(totD)}</div>
       </div>
     </div>
-    <div class="slbl">Folha Realizada <span class="slbl-tag">do recibo da contabilidade</span></div>
-    <div class="pag-grid">${cards}</div>
+    ${grupos}
     <div class="exp-wrap">
       <div class="exp-tit">Holerite Geral</div>
       <div class="exp-btns">

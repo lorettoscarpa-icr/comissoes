@@ -1717,6 +1717,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
         <button class="bup primario" onclick="exportarExcel()">Excel — Folha Completa (Contabilidade)</button>
         <button class="bup" onclick="exportarCalendarioVendas()">Excel — Calendário de Vendas</button>
         <button class="bup" onclick="exportarPorVendedora()">Excel — Uma Aba por Vendedora</button>
+        <button class="bup" onclick="gerarRelatorioComissoes()">PDF — Relatório de Comissões (assinatura)</button>
         <button class="bup" onclick="exportarPDF()">PDF — Resumo Geral</button>
       </div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--oud2);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -4090,6 +4091,72 @@ function gerarHoleriteGeral(){
 
   doc.save(`loretto-holerite-geral-${MESES[DATA_ATUAL.getMonth()].toLowerCase()}-${DATA_ATUAL.getFullYear()}.pdf`);
   toast('Holerite geral gerado','ok');
+}
+
+// Relatório de comissões por vendedora — 1 página cada, com assinatura no fim
+function gerarRelatorioComissoes(){
+  if(!RESULTADO || !RESULTADO.result){ toast('Carregue o fechamento do mês primeiro','er'); return; }
+  const result = RESULTADO.result;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const mesNome = MESES[DATA_ATUAL.getMonth()];
+  const ano = DATA_ATUAL.getFullYear();
+  let primeira = true;
+  VENDEDORAS.forEach(v=>{
+    const d = result[v];
+    if(!d || !d._total) return;
+    if(!primeira) doc.addPage();
+    primeira = false;
+    // cabeçalho da marca
+    doc.setFillColor(40,61,26); doc.rect(0,0,210,30,'F');
+    doc.setTextColor(212,180,90); doc.setFont('helvetica','normal'); doc.setFontSize(20);
+    doc.text('LORETTO SCARPA', 14, 14);
+    doc.setFontSize(10); doc.setTextColor(235,212,138);
+    doc.text('Relatório de Comissões', 14, 22);
+    // nome + mês
+    doc.setTextColor(40,40,40); doc.setFontSize(15);
+    doc.text(v, 14, 45);
+    doc.setFontSize(10); doc.setTextColor(90,90,90);
+    doc.text(`${mesNome} de ${ano}`, 14, 52);
+    // tabela: categoria | qtd | comissão (apenas categorias com venda)
+    const body = [];
+    ORDEM_CAT.forEach(c=>{
+      const l = d[c];
+      if(!l || (l.qtd||0) <= 0) return;
+      let nomeCat = NOME_CAT[c];
+      if(c === 'sapatos_encomenda' && l.qtd > 0){
+        const ent = l.entregues || 0;
+        const aEnt = l.a_entregar !== undefined ? l.a_entregar : (l.qtd - ent);
+        nomeCat = `${NOME_CAT[c]} (${ent} entr. / ${aEnt} a entregar)`;
+      }
+      body.push([nomeCat, String(l.qtd), fmtBRL(l.comissao)]);
+    });
+    body.push(['TOTAL', String(d._total.qtd), fmtBRL(d._total.comissao)]);
+    const idxTot = body.length - 1;
+    doc.autoTable({
+      head: [['Categoria','Qtd','Comissão']],
+      body, startY: 60, theme:'grid',
+      headStyles:{fillColor:[42,61,28], textColor:[235,212,138], fontStyle:'bold', fontSize:10},
+      bodyStyles:{fontSize:10, textColor:[50,50,50]},
+      columnStyles:{0:{cellWidth:'auto'},1:{halign:'center',cellWidth:24},2:{halign:'right',cellWidth:42}},
+      didParseCell:(dd)=>{ if(dd.row.index===idxTot){ dd.cell.styles.fillColor=[212,180,90]; dd.cell.styles.textColor=[31,47,20]; dd.cell.styles.fontStyle='bold'; } },
+      margin:{left:14,right:14}
+    });
+    let y = doc.lastAutoTable.finalY + 16;
+    doc.setTextColor(60,60,60); doc.setFontSize(9.5);
+    const decl = doc.splitTextToSize(`Declaro ter recebido os valores de comissão referentes ao mês de ${mesNome} de ${ano}, no total de ${fmtBRL(d._total.comissao)}, conforme discriminado acima.`, 182);
+    doc.text(decl, 14, y);
+    y += decl.length*5 + 30;
+    doc.setDrawColor(120,120,120); doc.line(40, y, 170, y);
+    doc.setFontSize(10); doc.setTextColor(40,40,40);
+    doc.text(v, 105, y+6, {align:'center'});
+    doc.setFontSize(8); doc.setTextColor(120,120,120);
+    doc.text('Assinatura da Vendedora', 105, y+11, {align:'center'});
+    doc.text('Data: ____/____/________', 105, y+22, {align:'center'});
+  });
+  if(primeira){ toast('Nenhuma vendedora com comissão no mês','er'); return; }
+  doc.save(`loretto-relatorio-comissoes-${mesNome.toLowerCase()}-${ano}.pdf`);
+  toast('Relatório de comissões gerado','ok');
 }
 
 // ═════════════════════════ SALVAMENTO DO FECHAMENTO ═════════════════════════

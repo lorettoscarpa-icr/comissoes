@@ -4118,20 +4118,23 @@ function gerarRelatorioComissoes(){
     doc.text(v, 14, 45);
     doc.setFontSize(10); doc.setTextColor(90,90,90);
     doc.text(`${mesNome} de ${ano}`, 14, 52);
-    // tabela: categoria | qtd | comissão (apenas categorias com venda)
+    // tabela: categoria | qtd | comissão (só categorias COMISSIONADAS com venda)
     const body = [];
+    let qtdComiss = 0;
     ORDEM_CAT.forEach(c=>{
       const l = d[c];
       if(!l || (l.qtd||0) <= 0) return;
+      if(!COMISSAO[c]) return;           // pula não comissionados (Meias, Produtos de Limpeza)
       let nomeCat = NOME_CAT[c];
       if(c === 'sapatos_encomenda' && l.qtd > 0){
         const ent = l.entregues || 0;
         const aEnt = l.a_entregar !== undefined ? l.a_entregar : (l.qtd - ent);
         nomeCat = `${NOME_CAT[c]} (${ent} entr. / ${aEnt} a entregar)`;
       }
+      qtdComiss += l.qtd;
       body.push([nomeCat, String(l.qtd), fmtBRL(l.comissao)]);
     });
-    body.push(['TOTAL', String(d._total.qtd), fmtBRL(d._total.comissao)]);
+    body.push(['TOTAL', String(qtdComiss), fmtBRL(d._total.comissao)]);
     const idxTot = body.length - 1;
     doc.autoTable({
       head: [['Categoria','Qtd','Comissão']],

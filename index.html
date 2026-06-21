@@ -1971,6 +1971,20 @@ function trocarTab(tab){
 
 const VENDEDORAS = ['Jhennifer', 'Ialey', 'Michelly', 'Natália'];
 
+// Nomes completos (recibo da contabilidade) + CPF (repositório de RH) — usados na assinatura do relatório
+const NOME_COMPLETO_VEND = {
+  'Jhennifer': 'Jhennifer Cunha de Sousa',
+  'Ialey':     'Ialey Santos da Silva',
+  'Michelly':  'Michelly Nunes de Oliveira',
+  'Natália':   'Natália dos Santos Tavares'
+};
+const CPF_VEND = {
+  'Jhennifer': '051.382.871-09',
+  'Ialey':     '704.320.851-30',
+  'Michelly':  '704.047.231-79',
+  'Natália':   '700.537.322-78'
+};
+
 // Equipe fixa — NÃO comissionados. Recebem salário fixo + horas extras (só registro); adiantamento desconta.
 const EQUIPE_FIXA = [
   {nome: 'Yuri',    cargo: 'Estoquista'},
@@ -4107,6 +4121,8 @@ function gerarRelatorioComissoes(){
     if(!d || !d._total) return;
     if(!primeira) doc.addPage();
     primeira = false;
+    const nomeCompleto = NOME_COMPLETO_VEND[v] || v;
+    const cpf = CPF_VEND[v];
     // cabeçalho da marca
     doc.setFillColor(40,61,26); doc.rect(0,0,210,30,'F');
     doc.setTextColor(212,180,90); doc.setFont('helvetica','normal'); doc.setFontSize(20);
@@ -4115,7 +4131,7 @@ function gerarRelatorioComissoes(){
     doc.text('Relatório de Comissões', 14, 22);
     // nome + mês
     doc.setTextColor(40,40,40); doc.setFontSize(15);
-    doc.text(v, 14, 45);
+    doc.text(nomeCompleto, 14, 45);
     doc.setFontSize(10); doc.setTextColor(90,90,90);
     doc.text(`${mesNome} de ${ano}`, 14, 52);
     // tabela: categoria | qtd | comissão (só categorias COMISSIONADAS com venda)
@@ -4152,10 +4168,12 @@ function gerarRelatorioComissoes(){
     y += decl.length*5 + 30;
     doc.setDrawColor(120,120,120); doc.line(40, y, 170, y);
     doc.setFontSize(10); doc.setTextColor(40,40,40);
-    doc.text(v, 105, y+6, {align:'center'});
+    doc.text(nomeCompleto, 105, y+6, {align:'center'});
     doc.setFontSize(8); doc.setTextColor(120,120,120);
-    doc.text('Assinatura da Vendedora', 105, y+11, {align:'center'});
-    doc.text('Data: ____/____/________', 105, y+22, {align:'center'});
+    let sy = y+11;
+    if(cpf){ doc.text(`CPF: ${cpf}`, 105, sy, {align:'center'}); sy += 5; }
+    doc.text('Assinatura da Vendedora', 105, sy, {align:'center'});
+    doc.text('Data: ____/____/________', 105, sy+11, {align:'center'});
   });
   if(primeira){ toast('Nenhuma vendedora com comissão no mês','er'); return; }
   doc.save(`loretto-relatorio-comissoes-${mesNome.toLowerCase()}-${ano}.pdf`);

@@ -1411,14 +1411,15 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
     browserLocalPersistence
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
   import {
-    getFirestore,
+    initializeFirestore,
+    persistentLocalCache,
+    persistentMultipleTabManager,
     doc,
     getDoc,
     setDoc,
     deleteDoc,
     collection,
-    getDocs,
-    enableIndexedDbPersistence
+    getDocs
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -1432,19 +1433,16 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  const db = getFirestore(app);
+
+  // Firestore com cache offline (substitui enableIndexedDbPersistence)
+  const db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
 
   // Persistência local de Auth — mantém logado mesmo após fechar o navegador
   setPersistence(auth, browserLocalPersistence).catch(()=>{});
-
-  // Persistência offline do Firestore — cache local automático
-  enableIndexedDbPersistence(db).catch(err => {
-    if(err.code === 'failed-precondition'){
-      console.warn('Firestore: múltiplas abas abertas, persistência offline só funciona em uma');
-    } else if(err.code === 'unimplemented'){
-      console.warn('Firestore: navegador não suporta cache offline');
-    }
-  });
 
   // Expor pra usar no resto do código
   window._auth = auth;

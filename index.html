@@ -3522,7 +3522,8 @@ async function migrarLocalStorageParaFirestore(){
       if(!raw) continue;
       body = JSON.parse(raw);
 
-      // Sobe pro Firestore
+      // Sobe pro Firestore (sanitizado — dados antigos podem ter array aninhado)
+      body = sanitizarFS(body, false);
       await setDoc(doc(db, colecao, idDoc), body);
       FS_CACHE[colecao][idDoc] = body;
       migrados++;
@@ -3536,6 +3537,30 @@ async function migrarLocalStorageParaFirestore(){
     console.log(`Firestore: ${migrados} dado(s) antigo(s) migrado(s) do navegador para a nuvem`);
     toast(`${migrados} dado${migrados>1?'s':''} antigo${migrados>1?'s':''} sincronizado${migrados>1?'s':''} com a nuvem`, 'ok');
   }
+}
+
+// Rede de segurança: limpa o payload de tudo que o Firestore recusa
+// (undefined, funções, Map, Set, Date, Infinity, arrays aninhados).
+function sanitizarFS(valor, dentroDeArray){
+  if(valor === undefined || valor === null) return null;
+  if(typeof valor === 'function' || typeof valor === 'symbol') return null;
+  if(valor instanceof Date) return valor.toISOString();
+  if(valor instanceof Map){
+    return Array.from(valor.entries()).map(([k,v]) => ({ chave: String(k), valor: sanitizarFS(v, false) }));
+  }
+  if(valor instanceof Set) return sanitizarFS(Array.from(valor), dentroDeArray);
+  if(Array.isArray(valor)){
+    const arr = valor.map(v => sanitizarFS(v, true));
+    // array aninhado dentro de array → embrulha em objeto (Firestore não suporta)
+    return dentroDeArray ? { itens: arr } : arr;
+  }
+  if(typeof valor === 'object'){
+    const out = {};
+    Object.keys(valor).forEach(k => { out[k] = sanitizarFS(valor[k], false); });
+    return out;
+  }
+  if(typeof valor === 'number' && !isFinite(valor)) return 0;
+  return valor;
 }
 
 // Salva um documento no Firestore em background (fire-and-forget)
@@ -3560,7 +3585,19 @@ function fsSalvar(colecao, id, dados, opcoes){
   const { setDoc, doc } = window._fsFns;
   const silencioso = opcoes && opcoes.silencioso;
 
-  setDoc(doc(window._db, colecao, id), dados)
+  let promessa;
+  try {
+    // setDoc LANÇA de forma SÍNCRONA quando o payload é inválido —
+    // por isso um .catch() sozinho nunca pegava esse erro.
+    promessa = setDoc(doc(window._db, colecao, id), sanitizarFS(dados, false));
+  } catch(e){
+    console.error(`Firestore recusou ${colecao}/${id}:`, e);
+    const ind = document.getElementById('sync-status');
+    if(ind){ ind.textContent = '⚠ Erro ao salvar na nuvem'; ind.className = 'sync-err'; }
+    return;
+  }
+
+  promessa
     .then(() => {
       if(!silencioso){
         // Indicador discreto no header
@@ -4196,7 +4233,9 @@ function salvarFechamentoMes(){
     if(RESULTADO.auditoria){
       auditoriaSer = {...RESULTADO.auditoria};
       if(auditoriaSer.produtosSemCategoria instanceof Map){
-        auditoriaSer.produtosSemCategoria = Array.from(auditoriaSer.produtosSemCategoria.entries());
+        // Firestore NÃO aceita array de arrays. Serializa como array de objetos.
+        auditoriaSer.produtosSemCategoria = Array.from(auditoriaSer.produtosSemCategoria.entries())
+          .map(([produto, info]) => ({ produto: String(produto), ...(info || {}) }));
       }
     }
     // Coleta horas extras de todas as vendedoras (backup dentro do fechamento)
@@ -4243,7 +4282,17 @@ function carregarFechamentoMes(){
     // Desserializa auditoria (Array -> Map)
     let auditoria = dados.auditoria;
     if(auditoria && Array.isArray(auditoria.produtosSemCategoria)){
-      auditoria.produtosSemCategoria = new Map(auditoria.produtosSemCategoria);
+      auditoria.produtosSemCategoria = new Map(
+        auditoria.produtosSemCategoria.map(item =>
+          Array.isArray(item)
+            ? item                                     // formato antigo (localStorage): [produto, info]
+            : [item.produto, {                         // formato novo (Firestore): {produto, ...}
+                ocorrencias:  item.ocorrencias  || 0,
+                qtd_total:    item.qtd_total    || 0,
+                valor_total:  item.valor_total  || 0
+              }]
+        )
+      );
     }
 
     // Restaura horas extras (caso tenham sido perdidas em outro silo)

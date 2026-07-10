@@ -1538,6 +1538,9 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
   text-transform:uppercase;color:#82876f;}
 .hv-stat-v{font-family:'DM Mono',monospace;font-size:.88cqw;font-weight:500;}
 .hv-stat.hv-destaque .hv-stat-v{color:#9c3a2b;}
+.hv-vazio{flex:1;display:grid;place-items:center;text-align:center;padding:5cqw;}
+.hv-vazio h3{font-family:'Playfair Display',serif;font-size:1.7cqw;font-weight:400;margin-bottom:1cqw;}
+.hv-vazio p{font-size:.9cqw;color:#82876f;max-width:36cqw;line-height:1.6;margin:0 auto;}
 
 /* ── impressão: só a folha, A4 deitado ── */
 @page{size:A4 landscape;margin:0;}
@@ -6454,6 +6457,25 @@ function hvRender(){
   }
   const media = trabalhados ? geral/trabalhados : 0;
   const maxCat = Math.max(1, ...HV_CATS.map(c=>tot[c.k]));
+
+  // Vendedora sem nenhuma venda no mês (férias, afastamento, admissão no meio do mês).
+  // Não faz sentido pintar 25 linhas de alerta.
+  if(geral === 0){
+    document.getElementById('hv-folha').innerHTML = `
+      <header class="hv-cab">
+        <div class="hv-marca"><span class="hv-n1">Loretto Scarpa</span><span class="hv-n2">desde 2016</span></div>
+        <div class="hv-meio"><div class="hv-et">Histórico de vendas</div><div class="hv-nm">${v}</div></div>
+        <div class="hv-dir"><div class="hv-mes">${mesNome} · ${ano}</div></div>
+      </header>
+      <div class="hv-vazio">
+        <div>
+          <h3>Nenhuma venda em ${mesNome}</h3>
+          <p>Não há lançamento de ${v} no Kigi neste mês. Se ela trabalhou,
+             confira se o nome dela saiu certo na planilha de origem.</p>
+        </div>
+      </div>`;
+    return;
+  }
 
   // Linhas
   let linhas='', acum=0;

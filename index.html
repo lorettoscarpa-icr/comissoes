@@ -1559,29 +1559,12 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
 }
 
 </style>
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-  import {
-    getAuth,
-    signInWithEmailAndPassword,
-    onAuthStateChanged,
-    signOut,
-    sendPasswordResetEmail,
-    setPersistence,
-    browserLocalPersistence
-  } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-  import {
-    initializeFirestore,
-    persistentLocalCache,
-    persistentMultipleTabManager,
-    doc,
-    getDoc,
-    setDoc,
-    deleteDoc,
-    collection,
-    getDocs
-  } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
-
+<!-- Firebase COMPAT (mesma versão da Central: 10.12.0). Evita o conflito de sessão
+     que expulsava o usuário da Central ao abrir este painel. NÃO voltar pro SDK modular. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
   const firebaseConfig = {
     apiKey: "AIzaSyCogQoTSULCdC1JhTb0IUilWAIA1itBJ8U",
     authDomain: "loretto-scarpa-l-icr.firebaseapp.com",
@@ -1591,27 +1574,35 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
     appId: "1:428188657366:web:d88f4ec3a6392d5983cb77"
   };
 
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
+  if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db   = firebase.firestore();
 
-  // Firestore com cache offline (substitui enableIndexedDbPersistence)
-  const db = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
-  });
+  // Persistência local de Auth — mesma sessão compartilhada com a Central.
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 
-  // Persistência local de Auth — mantém logado mesmo após fechar o navegador
-  setPersistence(auth, browserLocalPersistence).catch(()=>{});
-
-  // Expor pra usar no resto do código
+  // Wrappers com a MESMA assinatura da API modular, mas rodando no compat por baixo.
+  // Assim o resto do painel (setDoc/getDocs/collection/doc/...) continua igual.
   window._auth = auth;
-  window._authFns = { signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged };
+  window._authFns = {
+    signInWithEmailAndPassword: (a,e,p)=>a.signInWithEmailAndPassword(e,p),
+    sendPasswordResetEmail:     (a,e)=>a.sendPasswordResetEmail(e),
+    signOut:                    (a)=>a.signOut(),
+    onAuthStateChanged:         (a,cb)=>a.onAuthStateChanged(cb)
+  };
   window._db = db;
-  window._fsFns = { doc, getDoc, setDoc, deleteDoc, collection, getDocs };
+  window._fsFns = {
+    doc:        (d,a,b)=> (b===undefined ? d.doc(a) : d.collection(a).doc(b)),
+    getDoc:     (ref)=>ref.get(),
+    setDoc:     (ref,data,opts)=> (opts ? ref.set(data,opts) : ref.set(data)),
+    deleteDoc:  (ref)=>ref.delete(),
+    collection: (d,...p)=>d.collection(p.join('/')),
+    getDocs:    (q)=>q.get()
+  };
 
-  // Observa estado de autenticação
-  onAuthStateChanged(auth, (user) => {
+  // Observa o estado de autenticação. Como a sessão é a mesma da Central,
+  // ao abrir já logado o usuário entra direto no dashboard (auto-entrar).
+  auth.onAuthStateChanged((user) => {
     // Esconde tela de loading
     const loading = document.getElementById('auth-loading');
     if(loading) loading.style.display = 'none';

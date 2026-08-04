@@ -2192,8 +2192,11 @@ const NOME_CAT = {
 const REGRAS_CAT = [
   // Frete / entrega / não-vendas — devem vir ANTES das categorias
   {cat:'_excluir', termos:['frete','taxa de entrega','taxa de envio','envio','correio','sedex','desconto cupom']},
+  // Protetor de sapatos — comissiona igual ao prendedor de camisa.
+  // Precisa vir ANTES de limpeza e de sapatos (senão "protetor de sapato" cairia em sapatos)
+  {cat:'prendedores', termos:['protetor de sapato','protetor para sapato','protetor sapato','protetor de calcado','protetor para calcado']},
   // Limpeza ANTES de sapatos (pra "Limpa Tenis" não cair em sapatos)
-  {cat:'limpeza', termos:['limpa','produto de limpeza','renovador','hidratante','hidrata','escova','impermeabilizante','impermeabiliza','graxa','polidor','condicionador couro','protetor de couro','revitaliza','flanela','muss','calcanheira','odor','desodoriz']},
+  {cat:'limpeza', termos:['limpa','limpa camurca','produto de limpeza','renovador','hidratante','hidrata','escova','impermeabilizante','impermeabiliza','graxa','polidor','condicionador couro','protetor de couro','revitaliza','flanela','muss','calcanheira','odor','desodoriz','shampoo','kit shampoo']},
   // Meias ANTES de sapatos (pra "Meia Sapatilha" não cair em sapatos)
   {cat:'meias', termos:['meia','soquete','sapatilha de meia']},
   // Sapatos de Encomenda — produto fictício do Kigi (deve vir ANTES de sapatos)

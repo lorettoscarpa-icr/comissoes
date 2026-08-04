@@ -2171,12 +2171,13 @@ const COMISSAO = {
   cintos:              5,
   carteiras:           5,
   prendedores:         5,
+  protetores:          5,  // protetor de sapatos — mesma comissão do prendedor
   limpeza:             0,
   meias:               0
 };
 
 // Ordem de exibição na tabela
-const ORDEM_CAT = ['sapatos','sapatos_encomenda','meias','cintos','carteiras','prendedores','limpeza'];
+const ORDEM_CAT = ['sapatos','sapatos_encomenda','meias','cintos','carteiras','prendedores','protetores','limpeza'];
 
 const NOME_CAT = {
   sapatos:           'Sapatos',
@@ -2185,6 +2186,7 @@ const NOME_CAT = {
   carteiras:         'Carteiras',
   limpeza:           'Produtos de Limpeza',
   prendedores:       'Prendedores de Camisa',
+  protetores:        'Protetores de Sapato',
   meias:             'Meias'
 };
 
@@ -2192,11 +2194,12 @@ const NOME_CAT = {
 const REGRAS_CAT = [
   // Frete / entrega / não-vendas — devem vir ANTES das categorias
   {cat:'_excluir', termos:['frete','taxa de entrega','taxa de envio','envio','correio','sedex','desconto cupom']},
-  // Protetor de sapatos — comissiona igual ao prendedor de camisa.
-  // Precisa vir ANTES de limpeza e de sapatos (senão "protetor de sapato" cairia em sapatos)
-  {cat:'prendedores', termos:['protetor de sapato','protetor para sapato','protetor sapato','protetor de calcado','protetor para calcado']},
+  // Protetor de sapatos — categoria própria. Precisa vir ANTES de limpeza e de
+  // sapatos (senão "protetor de sapato" cairia em sapatos pelo termo 'sapato')
+  {cat:'protetores', termos:['protetor de sapato','protetor para sapato','protetor sapato','protetor de calcado','protetor para calcado']},
   // Limpeza ANTES de sapatos (pra "Limpa Tenis" não cair em sapatos)
-  {cat:'limpeza', termos:['limpa','limpa camurca','produto de limpeza','renovador','hidratante','hidrata','escova','impermeabilizante','impermeabiliza','graxa','polidor','condicionador couro','protetor de couro','revitaliza','flanela','muss','calcanheira','odor','desodoriz','shampoo','kit shampoo']},
+  // 'shampo' (com um o só) casa tanto "Kit Shampo" quanto "Kit Shampoo"
+  {cat:'limpeza', termos:['limpa','limpa camurca','produto de limpeza','renovador','hidratante','hidrata','escova','impermeabilizante','impermeabiliza','graxa','polidor','condicionador couro','protetor de couro','revitaliza','flanela','muss','calcanheira','odor','desodoriz','shampo','kit shampo']},
   // Meias ANTES de sapatos (pra "Meia Sapatilha" não cair em sapatos)
   {cat:'meias', termos:['meia','soquete','sapatilha de meia']},
   // Sapatos de Encomenda — produto fictício do Kigi (deve vir ANTES de sapatos)
@@ -3364,6 +3367,7 @@ const ICONS = {
   carteiras: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M16 12h5"/><path d="M3 10h18"/></svg>',
   limpeza: '<svg viewBox="0 0 24 24"><path d="M9 3h6l1 5H8z"/><path d="M10 8v13M14 8v13"/><path d="M8 21h8"/></svg>',
   prendedores: '<svg viewBox="0 0 24 24"><circle cx="12" cy="6" r="3"/><path d="M12 9v8"/><path d="M9 17h6"/></svg>',
+  protetores: '<svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4-3 6.5-7 8-4-1.5-7-4-7-8V6z"/><path d="M8 12l2.5 2.5L16 9"/></svg>',
   meias: '<svg viewBox="0 0 24 24"><path d="M9 3v8l-4 5a3 3 0 0 0 3 5l5-3a3 3 0 0 0 1-2v-2l4-3V3z"/></svg>'
 };
 
@@ -3406,9 +3410,9 @@ function renderizar(){
   VENDEDORAS.forEach(v=>{
     // Pares vendidos = sapatos comuns + sapatos de encomenda
     const sap = result[v].sapatos.qtd + (result[v].sapatos_encomenda?.qtd || 0);
-    // Mix completo = todas as categorias não-sapato (cintos, carteiras, prendedores, meias, limpeza)
+    // Mix completo = todas as categorias não-sapato (cintos, carteiras, prendedores, protetores, meias, limpeza)
     const acess = result[v].cintos.qtd + result[v].carteiras.qtd + result[v].prendedores.qtd
-                + result[v].meias.qtd + result[v].limpeza.qtd;
+                + (result[v].protetores?.qtd || 0) + result[v].meias.qtd + result[v].limpeza.qtd;
     if(sap > melhorSap.val) melhorSap = {nome:v, val:sap};
     if(acess > melhorAcess.val) melhorAcess = {nome:v, val:acess};
     // Conversão de mix: itens de mix por par de sapato.
@@ -5331,7 +5335,7 @@ function corVendedora(idx){
 function corCategoria(cat){
   const map = {
     sapatos:'#d4b45a', cintos:'#b08840', carteiras:'#ebd48a',
-    prendedores:'#a8d4a8', limpeza:'#7a8a5a', meias:'#5a6b3a'
+    prendedores:'#a8d4a8', protetores:'#6f9c72', limpeza:'#7a8a5a', meias:'#5a6b3a'
   };
   return map[cat] || '#888';
 }
@@ -5512,6 +5516,7 @@ const META_DEFAULT = {
   cintos:      {meta: 8,  ultrameta: 15, bonus_meta: 30},
   carteiras:   {meta: 5,  ultrameta: 10, bonus_meta: 30},
   prendedores: {meta: 3,  ultrameta: 6,  bonus_meta: 20},
+  protetores:  {meta: 3,  ultrameta: 6,  bonus_meta: 20},
   limpeza:     {meta: 8,  ultrameta: 15, bonus_meta: 20},
   bonus_ultrameta_global: 100
 };
@@ -6351,6 +6356,7 @@ const HV_CATS = [
   {k:'cintos',            rot:'Cintos',      cor:'#8a6b2f'},
   {k:'carteiras',         rot:'Carteiras',   cor:'#aab88c'},
   {k:'prendedores',       rot:'Prendedores', cor:'#5f7048'},
+  {k:'protetores',        rot:'Protetores',  cor:'#93a87a'},
   {k:'limpeza',           rot:'Limpeza',     cor:'#ded3ad'}
 ];
 const HV_SEMANA = ['seg','ter','qua','qui','sex','sáb','dom'];

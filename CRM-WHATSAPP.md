@@ -226,10 +226,48 @@ quem tem visita→venda baixa precisa olhar estoque e atendimento na loja.
 
 ---
 
-## Cruzamento com a Central de Pagamentos
+## Cruzamento com os outros sistemas
 
-Aba **Cruzamento**. Lê três coleções da Central — `fechamentos`, `metas` e `atingimentos` —
-**somente leitura**. O CRM nunca escreve nelas.
+Aba **Cruzamento**. Os quatro sistemas da loja usam **o mesmo Firebase**
+(`loretto-scarpa-l-icr`) e **os mesmos nomes de vendedora**, então não há integração a
+fazer — é só ler. **Somente leitura: o CRM nunca escreve nas coleções dos outros.**
+
+| Sistema | Repositório | Coleções lidas |
+|---|---|---|
+| Central de Pagamentos | `comissoes` | `fechamentos`, `metas`, `atingimentos` |
+| Central de Entregas | `entregas` | `entregas` |
+| Central de Metas | `metas` | `ls_metas`, `ls_historico` |
+
+### A junção exata: entregas ↔ leads pelo telefone
+
+A Central de Entregas grava o telefone do cliente em `contato`. É a **mesma chave** do CRM —
+e a única ligação exata entre as bases; todo o resto é comparação de totais.
+
+O telefone é digitado à mão lá, então os formatos variam. O CRM canoniza os dois lados para
+`DDD + 9 + 8 dígitos` antes de comparar — inclusive reinserindo o nono dígito em registros
+no formato antigo. Verificado com cinco formatos diferentes do mesmo número
+(`5562…`, `62…`, `(62) 9…`, `+55 62 9…` e sem o nono dígito): todos casam.
+
+Disso saem dois números que nenhuma fonte tem sozinha:
+
+- **Entregas com lead no CRM** — a venda nasceu de uma conversa rastreada.
+- **Entregas sem lead nenhum** — ou a varredura não capturou, ou a venda não veio do
+  WhatsApp. É a medida direta do buraco de captura.
+
+O botão **Marcar como venda por entrega** preenche rota, valor e etapa nos leads casados.
+Só age sobre entrega com status `entregue` — pedido em rota ainda pode ser cancelado, e
+marcar venda antes da hora infla o número. A Central de Entregas não é alterada.
+
+### As três contagens da mesma venda
+
+| Fonte | O que conta |
+|---|---|
+| **Kigi** (`fechamentos`) | O que passou no sistema de vendas |
+| **Anotado** (`ls_historico`) | O que a vendedora contou, por dia e categoria |
+| **CRM** | O que veio de conversa no WhatsApp |
+
+Divergência grande entre as duas primeiras é **lançamento faltando** — de um dos lados. A
+tabela marca a diferença em vermelho acima de 3 peças.
 
 ### Por que os dois números não batem (e não deveriam)
 

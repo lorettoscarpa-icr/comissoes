@@ -460,6 +460,26 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <div id="dias-vazio"></div>
       </div>
 
+      <div class="slbl">Central de Entregas
+        <span class="slbl-tag" id="tag-ent">—</span>
+      </div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        A Central de Entregas grava o telefone do cliente, que é a <b>mesma chave</b> do CRM.
+        Esta é a única ligação <b>exata</b> entre as duas bases — o resto é comparação de totais.
+        Entrega sem lead correspondente é venda que a varredura não capturou, ou que não veio do WhatsApp.
+      </div>
+      <div id="cruz-ent"></div>
+
+      <div class="slbl">O que cada fonte diz</div>
+      <div class="card">
+        <div class="card-tit">Três contagens da mesma venda</div>
+        <div class="card-sub">O Kigi registra o que passou no sistema. A vendedora anota o que ela contou. O CRM vê o que veio de conversa. Divergência grande entre as duas primeiras é lançamento faltando de um dos lados.</div>
+        <div class="tab-wrap"><table class="tab"><thead><tr>
+          <th>Vendedora</th><th class="tnum">Peças (Kigi)</th><th class="tnum">Peças (anotado)</th>
+          <th class="tnum">Diferença</th><th class="tnum">Entregas</th><th class="tnum">Vendas no CRM</th>
+        </tr></thead><tbody id="tb-fontes"></tbody></table></div>
+      </div>
+
       <div class="slbl">Metas do mês</div>
       <div class="card">
         <div class="card-tit">Quanto falta e quanto ainda tem na base</div>
@@ -660,7 +680,23 @@ let MSGS_DIA = {};     // 'YYYY-MM-DD' -> { Vendedora: {recebidas, enviadas} }
 /* Espelho das coleções da Central de Pagamentos. SOMENTE LEITURA — o CRM nunca
    escreve nelas. A Central é a fonte de verdade da venda (vem do Kigi); o CRM é
    a fonte da conversa. Cruzar os dois é o que dá o número que nenhum tem sozinho. */
-let CENTRAL = { fechamento: null, metas: null, atingimentos: null };
+let CENTRAL = { fechamento: null, metas: null, atingimentos: null,
+                entregas: null, metasLS: null, historico: null };
+
+/* Chave canônica de telefone para JUNTAR bases diferentes.
+   A Central de Entregas grava o telefone em `contato`, digitado à mão e em
+   qualquer formato; o CRM usa o telefone como chave do documento. Sem canonizar
+   os dois do mesmo jeito, a junção erra por causa do nono dígito.
+   Canônico = DDD + 9 + 8 dígitos (11), sem o 55. */
+function chaveFone(raw){
+  let d = String(raw||'').replace(/\D/g,'');
+  if(!d) return '';
+  if(d.length > 11 && d.startsWith('55')) d = d.slice(2);
+  if(d.length === 10) d = d.slice(0,2) + '9' + d.slice(2);  // formato antigo, sem o 9
+  if(d.length === 9  && d[0] === '9') d = '62' + d;          // sem DDD → Goiânia
+  if(d.length === 8) d = '629' + d;
+  return d.length === 11 ? d : d;
+}
 let DATA_ATUAL = new Date();
 let PAG_ATUAL = 'painel';
 let LEAD_ABERTO = null;
@@ -941,6 +977,27 @@ async function carregarCentral(){
     if(m.exists) CENTRAL.metas       = m.data();
     if(a.exists) CENTRAL.atingimentos = a.data();
   }catch(e){
+    console.warn('Central de Pagamentos indisponível:', e.message);
+    CENTRAL._erro = e.message;
+  }
+
+  // ── Central de Entregas e Central de Metas ──
+  // Mesmo projeto Firebase (loretto-scarpa-l-icr), então é só ler. Somente leitura.
+  const km = `${DATA_ATUAL.getFullYear()}_${String(DATA_ATUAL.getMonth()+1).padStart(2,'0')}`;
+  try{
+    const [ent, lsm, ...hist] = await Promise.all([
+      db.collection('entregas').get(),
+      db.collection('ls_metas').doc(km).get(),
+      ...VENDEDORAS.map(v => db.collection('ls_historico').doc(`${v}_${km}`).get())
+    ]);
+    CENTRAL.entregas = [];
+    ent.forEach(d => CENTRAL.entregas.push({id: d.id, ...d.data()}));
+    CENTRAL.metasLS = lsm.exists ? lsm.data() : null;
+    CENTRAL.historico = {};
+    hist.forEach((h, i) => {
+      CENTRAL.historico[VENDEDORAS[i]] = h.exists ? (h.data().registros || []) : [];
+    });
+  }catch(e){
     // Sem permissão de leitura nas coleções da Central: o resto do CRM segue
     // funcionando, só a aba de cruzamento fica indisponível.
     console.warn('Central indisponível:', e.message);
@@ -1088,6 +1145,62 @@ function metricas(){
    com "vendas" seria comparar coisas diferentes — por isso o cruzamento é feito
    em valor e em peças, nunca em contagem de venda. */
 
+/* Junta a Central de Entregas com os leads do CRM pelo telefone.
+   Esta é a única ligação EXATA entre as duas bases — as outras comparações são
+   agregadas. Daqui sai o que nenhuma fonte sozinha responde: quais entregas
+   nasceram de uma conversa e quais não têm lead nenhum no CRM (ou a varredura
+   não pegou, ou a venda não veio do WhatsApp). */
+const ENTREGA_FECHADA = ['entregue'];
+const ENTREGA_MORTA   = ['cancelado','nao_entregue'];
+
+function cruzarEntregas(){
+  if(!CENTRAL.entregas) return null;
+  const pre = mesPrefixo();
+  const porFone = {};
+  for(const l of todosLeads()){
+    const k = chaveFone(l.telefone);
+    if(k) porFone[k] = l;
+  }
+  const doMes = CENTRAL.entregas.filter(e => {
+    const d = e.dataEntrega || (e.criadoEm ? new Date(e.criadoEm).toISOString().slice(0,10) : '');
+    return String(d).startsWith(pre);
+  });
+  const casadas = [], orfas = [];
+  for(const e of doMes){
+    const k = chaveFone(e.contato);
+    const lead = k ? porFone[k] : null;
+    (lead ? casadas : orfas).push({...e, _lead: lead || null, _chave: k});
+  }
+  const entregues = doMes.filter(e => ENTREGA_FECHADA.includes(e.status));
+  return {
+    doMes, casadas, orfas, entregues,
+    valorEntregue: entregues.reduce((s,e) => s + Number(e.valor||0), 0),
+    cobertura: doMes.length ? Math.round(casadas.length / doMes.length * 100) : null
+  };
+}
+
+/* O que cada vendedora ANOTOU na Central de Metas, por dia. É a terceira fonte
+   de venda: o Kigi diz o que o sistema registrou, a anotação diz o que a
+   vendedora contou, e o CRM diz o que veio de conversa. Divergência entre elas
+   é sinal de lançamento faltando — em algum dos lados. */
+function anotadoNoMes(){
+  if(!CENTRAL.historico) return null;
+  const out = {};
+  let total = 0;
+  for(const v of VENDEDORAS){
+    const regs = CENTRAL.historico[v] || [];
+    let sapatos = 0, pecas = 0;
+    for(const r of regs){
+      sapatos += Number(r.sapatos || 0);
+      pecas   += ['sapatos','meias','cintos','carteiras','limpeza','prendedor']
+                 .reduce((s,c) => s + Number(r[c] || 0), 0);
+    }
+    out[v] = {sapatos, pecas, dias: regs.length};
+    total += pecas;
+  }
+  return {porVend: out, total};
+}
+
 function cruzamento(){
   const m = metricas();
   const f = CENTRAL.fechamento;
@@ -1164,7 +1277,8 @@ function cruzamento(){
     rankAlcancado(l) >= ETAPA_RANK.preco && !['vendido','perdido'].includes(l.etapa));
 
   return {m, temCentral: !!f, centralValor, centralPecas, crmValor, atribuido,
-          porVend, dias, metasCat, quentes: quentes.length};
+          porVend, dias, metasCat, quentes: quentes.length,
+          ent: cruzarEntregas(), anotado: anotadoNoMes()};
 }
 
 /* ══════════════════ GRÁFICOS ══════════════════ */
@@ -1369,6 +1483,68 @@ function renderCruzamento(){
     `<div class="card-sub" style="margin-top:14px;">O fechamento deste mês não trouxe a data das vendas,
       então não dá para montar o dia a dia. Isso depende da coluna de data no arquivo do Kigi.</div>`;
 
+  // ── Entregas ──
+  const e = c.ent;
+  if(!e){
+    $('tag-ent').textContent = 'indisponível';
+    $('cruz-ent').innerHTML = `<div class="vazio">Não consegui ler a coleção <b>entregas</b>.
+      Provavelmente é permissão do Firestore para este usuário.</div>`;
+  }else{
+    $('tag-ent').textContent = `${e.doMes.length} no mês`;
+    const semLead = e.orfas.length;
+    const aplicaveis = e.casadas.filter(x => ENTREGA_FECHADA.includes(x.status) &&
+      (x._lead.canalVenda !== 'entrega' || x._lead.etapa !== 'vendido')).length;
+    $('cruz-ent').innerHTML = `
+      <div class="tiles">
+        <div class="tile"><div class="lbl">Entregas no mês</div><div class="val">${e.doMes.length}</div>
+          <div class="hint">${e.entregues.length} concluídas · ${brl(e.valorEntregue)}</div></div>
+        <div class="tile"><div class="lbl">Com lead no CRM</div><div class="val verde">${e.cobertura ?? '—'}%</div>
+          <div class="hint">${e.casadas.length} casadas pelo telefone</div></div>
+        <div class="tile"><div class="lbl">Sem lead nenhum</div><div class="val">${semLead}</div>
+          <div class="hint">varredura não pegou, ou não veio do WhatsApp</div></div>
+      </div>
+      ${aplicaveis ? `<div class="filtros" style="margin-top:16px;">
+        <button class="btn" onclick="aplicarEntregas()">Marcar ${aplicaveis} lead(s) como venda por entrega</button>
+        <span class="card-sub" style="margin:0;align-self:center;">Preenche rota, valor e etapa a partir da entrega concluída</span>
+      </div>` : '<div class="card-sub" style="margin-top:14px;">Todos os leads com entrega concluída já estão marcados.</div>'}
+      ${semLead ? `<div class="card" style="margin-top:18px;">
+        <div class="card-tit">Entregas sem lead no CRM</div>
+        <div class="card-sub">Cada linha é uma venda que o CRM não conseguiu ligar a nenhuma conversa.</div>
+        <div class="tab-wrap"><table class="tab"><thead><tr>
+          <th>Cliente</th><th>Vendedora</th><th>Bairro</th><th>Status</th><th class="tnum">Valor</th>
+        </tr></thead><tbody>
+        ${e.orfas.slice(0,60).map(x => `<tr>
+          <td><div class="t-nome">${esc(x.cliente || '(sem nome)')}</div>
+              <div class="t-fone">${esc(x.contato || 'sem telefone')}</div></td>
+          <td>${esc(x.vendedora || '—')}</td>
+          <td>${esc(x.bairro || '—')}</td>
+          <td><span class="pill ${ENTREGA_FECHADA.includes(x.status)?'pill-ok':ENTREGA_MORTA.includes(x.status)?'pill-er':''}">${esc(x.status||'—')}</span></td>
+          <td class="tnum">${brl(x.valor||0)}</td>
+        </tr>`).join('')}
+        </tbody></table></div>
+        ${semLead > 60 ? `<div class="card-sub" style="margin-top:12px;">Mostrando 60 de ${semLead}.</div>` : ''}
+      </div>` : ''}`;
+  }
+
+  // ── Três fontes ──
+  const an = c.anotado;
+  $('tb-fontes').innerHTML = VENDEDORAS.map(v => {
+    const kigi = c.porVend.find(x => x.vendedora === v) || {pecas:0};
+    const anot = an && an.porVend[v] ? an.porVend[v] : null;
+    const dif  = anot ? anot.pecas - kigi.pecas : null;
+    const ents = e ? e.doMes.filter(x => x.vendedora === v).length : null;
+    const crmV = c.m.porVend.find(x => x.vendedora === v) || {vendas:0};
+    return `<tr>
+      <td class="t-nome">${esc(v)}</td>
+      <td class="tnum">${kigi.pecas}</td>
+      <td class="tnum">${anot ? anot.pecas : '—'}</td>
+      <td class="tnum">${dif === null ? '—' :
+        `<span class="pill ${Math.abs(dif) > 3 ? 'pill-er' : dif === 0 ? 'pill-ok' : 'pill-am'}">${dif > 0 ? '+' : ''}${dif}</span>`}</td>
+      <td class="tnum">${ents ?? '—'}</td>
+      <td class="tnum">${crmV.vendas}</td>
+    </tr>`;
+  }).join('');
+
   $('cruz-metas').innerHTML = c.metasCat.length
     ? `<div class="tab-wrap"><table class="tab"><thead><tr>
         <th>Categoria</th><th class="tnum">Meta</th><th class="tnum">Vendido</th>
@@ -1385,6 +1561,39 @@ function renderCruzamento(){
       </tr>`).join('')}
       </tbody></table></div>`
     : `<div class="vazio">As metas deste mês ainda não foram configuradas na Central.</div>`;
+}
+
+/* Escreve nos LEADS do CRM o que a Central de Entregas já sabe: quem recebeu em
+   casa fechou por entrega. Só toca em entrega com status 'entregue' — pedido em
+   rota ainda pode ser cancelado, e marcar venda antes da hora infla o número.
+   Não escreve NADA na Central de Entregas. */
+async function aplicarEntregas(){
+  const e = cruzarEntregas();
+  if(!e){ toast('Entregas indisponíveis', true); return; }
+  const alvos = e.casadas.filter(x => ENTREGA_FECHADA.includes(x.status) &&
+    (x._lead.canalVenda !== 'entrega' || x._lead.etapa !== 'vendido'));
+  if(!alvos.length){ toast('Nada novo para aplicar'); return; }
+  if(!confirm(`Marcar ${alvos.length} lead(s) como venda por entrega?\n\n` +
+    'Preenche rota, valor e etapa a partir da entrega concluída. A Central de Entregas não é alterada.')) return;
+
+  const lote = db.batch();
+  for(const x of alvos){
+    const l = LEADS[x._lead.telefone];
+    if(!l) continue;
+    const novo = {...l, canalVenda:'entrega', etapa:'vendido',
+      etapaMaxRank: Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK.vendido),
+      valorVenda: Number(x.valor || l.valorVenda || 0),
+      dataVenda: x.dataEntrega || l.dataVenda || hoje(),
+      atualizadoEm: new Date().toISOString(), atualizadoPor: 'central-entregas'};
+    if(!novo.nome && x.cliente) novo.nome = x.cliente;
+    LEADS[l.telefone] = novo;
+    lote.set(db.collection('crm_leads').doc(l.telefone), novo, {merge:true});
+  }
+  try{
+    await lote.commit();
+    toast(`${alvos.length} lead(s) marcados como venda por entrega`);
+    render();
+  }catch(err){ toast('Erro: ' + err.message, true); }
 }
 
 /* Nomes das categorias — espelham os da Central de Pagamentos. */
@@ -2262,6 +2471,7 @@ window.CRM = {
             }))})).filter(f => f.clientes.length),
   resumo:   () => metricas(),
   cruzamento: () => cruzamento(),
+  entregas: () => cruzarEntregas(),
   classificar: (texto) => classificarOrigem(texto),
   regras:   () => REGRAS_ORIGEM.map(r => ({id:r.id, origem:r.origem, confianca:r.confianca, reconhece:r.desc})),
   marcadoresPosVenda: () => MARCADORES_POSVENDA,

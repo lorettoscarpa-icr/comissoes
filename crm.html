@@ -287,6 +287,25 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         </div>
       </div>
 
+      <div class="slbl">Conversão em três níveis</div>
+      <div class="card">
+        <div class="card-tit">Lead → visita → venda</div>
+        <div class="card-sub">São diagnósticos diferentes: quem tem <b>lead&nbsp;→&nbsp;visita</b> baixa tem problema de convencimento no WhatsApp. Quem tem <b>visita&nbsp;→&nbsp;venda</b> baixa tem problema na loja — estoque, numeração ou atendimento presencial.</div>
+        <div class="tab-wrap"><table class="tab"><thead><tr>
+          <th>Vendedora</th><th class="tnum">Leads</th><th class="tnum">Vieram</th>
+          <th class="tnum">Lead → visita</th><th class="tnum">Visita → venda</th>
+          <th class="tnum">Lead → venda</th><th class="tnum">Faturado</th>
+        </tr></thead><tbody id="tb-conv3"></tbody></table></div>
+      </div>
+
+      <div class="slbl">As duas rotas de venda</div>
+      <div class="card">
+        <div class="card-tit">Vendeu na loja ou entregou</div>
+        <div class="card-sub">Venda de entrega fecha sem o cliente pisar na loja. Contar as duas juntas esconde qual rota cada vendedora domina — e faz a taxa de comparecimento mentir.</div>
+        <div class="bars" id="ch-rotas"></div>
+        <div id="rotas-nota"></div>
+      </div>
+
       <div class="slbl">De onde vieram os clientes</div>
       <div class="card">
         <div class="card-tit">Origem dos leads</div>
@@ -304,7 +323,7 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
       <div class="slbl">Funil de atendimento</div>
       <div class="card">
         <div class="card-tit">Onde as conversas param</div>
-        <div class="card-sub">Cada etapa conta quem chegou até ali, inclusive quem já passou adiante. À direita, quanto se perde na passagem.</div>
+        <div class="card-sub">Cada etapa conta quem chegou até ali, inclusive quem já passou adiante. À direita, quanto se perde na passagem. <b>Compareceu</b> conta só quem foi marcado como tendo vindo — venda por entrega fecha sem passar por essa etapa.</div>
         <div class="funil" id="ch-funil"></div>
       </div>
 
@@ -516,6 +535,37 @@ const TAGS_BLOQUEIO = TAGS.filter(t=>t.bloqueia).map(t=>t.id);
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const DIAS_SEM = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
 
+/* A mensagem automática de pós-venda é o marcador determinístico de compra
+   fechada — o mesmo raciocínio do template de anúncio. Quem tem esse texto na
+   conversa comprou; quem recebeu a localização e NÃO tem é exatamente quem vale
+   chamar de volta. O Claude procura por estes textos durante a varredura e
+   manda `posVendaEnviado: true`. */
+const MARCADORES_POSVENDA = ['Muito obrigada pela sua compra', 'Comunidade VIP'];
+
+/* Duas rotas de venda, e elas não são a mesma coisa:
+   LOJA    — o cliente veio, experimentou e fechou
+   ENTREGA — fechou sem pisar na loja, recebeu em casa
+   Misturar as duas faz a taxa de comparecimento mentir e esconde qual das duas
+   rotas cada vendedora realmente domina. */
+const CANAIS_VENDA = [
+  {id:'loja',    nome:'Na loja',     desc:'Veio, experimentou e fechou'},
+  {id:'entrega', nome:'Por entrega', desc:'Fechou sem vir — recebeu em casa'}
+];
+const CANAL_NOME = Object.fromEntries(CANAIS_VENDA.map(c=>[c.id,c.nome]));
+
+/* Canal de uma venda. Sem marcação explícita, quem comprovadamente veio à loja
+   conta como venda de loja; o resto fica indefinido em vez de ser chutado. */
+function canalDe(l){
+  if(l.canalVenda === 'loja' || l.canalVenda === 'entrega') return l.canalVenda;
+  if(l.compareceu === true) return 'loja';
+  return 'indefinido';
+}
+
+/* Veio à loja? Só conta marcação explícita. NÃO se deduz do funil: uma venda de
+   entrega chega em 'vendido' sem nunca ter pisado na loja, e deduzir pelo rank
+   inflava a taxa de comparecimento com quem só recebeu em casa. */
+const veioALoja = l => l.compareceu === true;
+
 const MAX_REPESCAGENS = 3;   // teto por cliente, conforme o playbook de atendimento
 const DIAS_ESFRIOU     = 2;  // dias de silêncio antes de entrar na fila
 
@@ -603,7 +653,7 @@ function leadVazio(fone){
     compareceu: null, valorVenda: 0, dataVenda: '',
     repescagens: [], bloquearRepescagem: false, motivoBloqueio: '',
     primeiraMensagem: '', origemAuto: '', origemConfianca: '', origemManual: false,
-    lembretes: [],
+    lembretes: [], posVendaEnviado: false, canalVenda: '',
     obs: '', criadoEm: new Date().toISOString(), atualizadoEm: '', atualizadoPor: ''
   };
 }
@@ -729,6 +779,13 @@ function mesclarLead(atual, novo){
   // o que veio vazio ou o que ela mesma tinha preenchido antes.
   if(r.primeiraMensagem && !r.origemManual &&
      (!novo.origem || r.origem === 'desconhecida' || r.origemAuto)) aplicarClassificacao(r);
+  // Pós-venda na conversa = compra fechada. É marcador exato, então vale sozinho.
+  if(r.posVendaEnviado && r.etapa !== 'vendido'){
+    r.etapa = 'vendido';
+    r.etapaMaxRank = Math.max(r.etapaMaxRank ?? -1, ETAPA_RANK.vendido);
+  }
+  // Venda marcada como de loja implica que o cliente veio; de entrega, não implica nada.
+  if(r.canalVenda === 'loja' && r.compareceu !== true) r.compareceu = true;
   return r;
 }
 
@@ -820,14 +877,26 @@ function metricas(){
   const {dados: msgs, fonte} = msgsDoMes();
   const recebidas = Object.values(msgs).reduce((s,m) => s + m.recebidas, 0);
 
+  const visitas       = leads.filter(veioALoja);
+  const vendasLoja    = vendidos.filter(l => canalDe(l) === 'loja');
+  const vendasEntrega = vendidos.filter(l => canalDe(l) === 'entrega');
+  const vendasIndef   = vendidos.filter(l => canalDe(l) === 'indefinido');
+
   const porVend = VENDEDORAS.map(v => {
     const meus = leads.filter(l => l.vendedora === v);
     const vend = meus.filter(l => l.etapa === 'vendido');
-    const comp = meus.filter(l => rankAlcancado(l) >= ETAPA_RANK.compareceu);
+    const comp = meus.filter(veioALoja);
+    const vLoja = vend.filter(l => canalDe(l) === 'loja');
+    const vEnt  = vend.filter(l => canalDe(l) === 'entrega');
     return {
       vendedora: v, leads: meus.length, vendas: vend.length,
-      conversao: pct(vend.length, meus.length),
       compareceram: comp.length,
+      vendasLoja: vLoja.length, vendasEntrega: vEnt.length,
+      // Os três níveis de conversão. São diagnósticos diferentes:
+      // lead→visita mede convencimento; visita→venda mede loja e atendimento presencial.
+      convLeadVisita:  pct(comp.length, meus.length),
+      convVisitaVenda: pct(vLoja.length, comp.length),
+      conversao:       pct(vend.length, meus.length),
       faturado: vend.reduce((s,l)=>s+Number(l.valorVenda||0), 0),
       recebidas: msgs[v].recebidas, enviadas: msgs[v].enviadas
     };
@@ -841,13 +910,23 @@ function metricas(){
 
   // Funil: cada etapa conta quem CHEGOU até ali, inclusive quem já passou adiante
   // ou já foi dado como perdido depois.
-  const funil = FUNIL.map(e => ({...e, total: leads.filter(l => rankAlcancado(l) >= e.rank).length}));
+  // 'Compareceu' conta só marcação explícita — deduzir do rank fazia toda venda
+  // de entrega ser contada como visita à loja e inflava a taxa de comparecimento.
+  const funil = FUNIL.map(e => ({...e,
+    total: e.id === 'compareceu'
+      ? visitas.length
+      : leads.filter(l => rankAlcancado(l) >= e.rank).length
+  }));
 
   return {
     leads, total: leads.length, vendas: vendidos.length,
     conversao: pct(vendidos.length, leads.length),
     faturado, ticket: vendidos.length ? faturado/vendidos.length : 0,
-    recebidas, fonteMsgs: fonte, porVend, porOrigem, funil
+    recebidas, fonteMsgs: fonte, porVend, porOrigem, funil,
+    visitas: visitas.length,
+    convLeadVisita:  pct(visitas.length, leads.length),
+    convVisitaVenda: pct(vendasLoja.length, visitas.length),
+    vendasLoja, vendasEntrega, vendasIndef
   };
 }
 
@@ -887,12 +966,45 @@ function renderPainel(){
       <div class="hint">clientes novos que escreveram</div></div>
     <div class="tile"><div class="lbl">Mensagens recebidas</div><div class="val">${m.recebidas}</div>
       <div class="hint">${fonteHint}</div></div>
+    <div class="tile"><div class="lbl">Vieram à loja</div><div class="val">${m.visitas}</div>
+      <div class="hint">${m.convLeadVisita}% dos leads do mês</div></div>
     <div class="tile"><div class="lbl">Vendas fechadas</div><div class="val verde">${m.vendas}</div>
-      <div class="hint">${m.conversao}% dos leads do mês</div></div>
+      <div class="hint">${m.vendasLoja.length} na loja · ${m.vendasEntrega.length} por entrega</div></div>
     <div class="tile"><div class="lbl">Faturado</div><div class="val">${brl(m.faturado).replace('R$ ','')}</div>
       <div class="hint">ticket médio ${brl(m.ticket)}</div></div>
     <div class="tile"><div class="lbl">Na fila de repescagem</div><div class="val">${contarRepescagem()}</div>
       <div class="hint">prontos para chamar hoje</div></div>`;
+
+  $('tb-conv3').innerHTML = m.porVend.map(v => `<tr>
+      <td class="t-nome">${esc(v.vendedora)}</td>
+      <td class="tnum">${v.leads}</td>
+      <td class="tnum">${v.compareceram}</td>
+      <td class="tnum">${v.convLeadVisita}%</td>
+      <td class="tnum">${v.compareceram ? v.convVisitaVenda + '%' : '—'}</td>
+      <td class="tnum">${v.conversao}%</td>
+      <td class="tnum">${brl(v.faturado)}</td>
+    </tr>`).join('') + `<tr style="border-top:1px solid var(--oud);">
+      <td class="t-nome" style="color:var(--ou2);">Total</td>
+      <td class="tnum">${m.total}</td>
+      <td class="tnum">${m.visitas}</td>
+      <td class="tnum">${m.convLeadVisita}%</td>
+      <td class="tnum">${m.visitas ? m.convVisitaVenda + '%' : '—'}</td>
+      <td class="tnum">${m.conversao}%</td>
+      <td class="tnum">${brl(m.faturado)}</td>
+    </tr>`;
+
+  const fatLoja = m.vendasLoja.reduce((s,l)=>s+Number(l.valorVenda||0),0);
+  const fatEnt  = m.vendasEntrega.reduce((s,l)=>s+Number(l.valorVenda||0),0);
+  barras($('ch-rotas'), [
+    {nome:'Na loja', valor:m.vendasLoja.length, rotulo:`${m.vendasLoja.length} <small>· ${brl(fatLoja)}</small>`,
+     tip:`Vendas na loja: ${m.vendasLoja.length} · ${brl(fatLoja)}`},
+    {nome:'Por entrega', valor:m.vendasEntrega.length, rotulo:`${m.vendasEntrega.length} <small>· ${brl(fatEnt)}</small>`,
+     tip:`Vendas por entrega: ${m.vendasEntrega.length} · ${brl(fatEnt)}`}
+  ]);
+  $('rotas-nota').innerHTML = m.vendasIndef.length
+    ? `<div class="card-sub" style="margin:16px 0 0;">${m.vendasIndef.length} venda(s) sem rota marcada —
+       abra a ficha e informe se foi na loja ou por entrega, senão elas ficam de fora desta leitura.</div>`
+    : '';
 
   barras($('ch-msgs'), m.porVend.map(v => ({
     nome: v.vendedora, valor: v.recebidas, rotulo: v.recebidas,
@@ -937,12 +1049,16 @@ function renderPainel(){
   $('ch-funil').innerHTML = m.funil.map((e, i) => {
     const ant  = i > 0 ? m.funil[i-1].total : null;
     const perda = ant !== null && ant > 0 ? Math.round((ant - e.total)/ant*100) : null;
+    // O funil pode CRESCER em 'Vendido': venda por entrega fecha sem passar pela
+    // loja. Sem dizer isso, a barra maior que a anterior parece defeito do painel.
+    const entrou = perda !== null && perda < 0 ? (e.total - ant) : null;
     return `<div class="fun-row">
       <div class="fun-nome">${esc(e.nome)}<small>${esc(e.desc)}</small></div>
       <div class="fun-bar" data-tip="${esc(e.nome)}: ${e.total} de ${topo} (${pct(e.total, topo)}% do topo)">
         <div class="fun-fill" style="width:${e.total/topo*100}%"></div>
         <div class="fun-txt">${e.total}</div>
         ${perda !== null && perda > 0 ? `<div class="fun-drop">−${perda}%</div>` : ''}
+        ${entrou ? `<div class="fun-drop" style="color:var(--ou2);">+${entrou} por entrega</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1041,6 +1157,16 @@ function abrirLead(fone){
       <div class="campo"><label>Combinou de vir em</label><input class="inp" id="d-agenda" type="date" value="${esc(l.agendadoPara||'')}"></div>
       <div class="campo"><label>Hora</label><input class="inp" id="d-hora" value="${esc(l.agendadoHora||'')}" placeholder="15:00"></div>
     </div>
+    <div class="campo-2">
+      <div class="campo"><label>Rota da venda</label><select class="sel" id="d-canal">
+        <option value="">Ainda não vendeu</option>
+        ${CANAIS_VENDA.map(c=>`<option value="${c.id}" ${c.id===l.canalVenda?'selected':''}>${esc(c.nome)} — ${esc(c.desc)}</option>`).join('')}
+      </select></div>
+      <div class="campo"><label>Pós-venda enviado?</label><select class="sel" id="d-posvenda">
+        <option value="">Não</option>
+        <option value="sim" ${l.posVendaEnviado?'selected':''}>Sim — compra confirmada</option>
+      </select></div>
+    </div>
     <div class="campo"><label>Veio à loja?</label><select class="sel" id="d-comp">
       <option value="">Ainda não se sabe</option>
       <option value="sim" ${l.compareceu===true?'selected':''}>Sim, apareceu</option>
@@ -1113,8 +1239,12 @@ async function salvarDrawer(){
     compareceu: compVal === 'sim' ? true : compVal === 'nao' ? false : null,
     obs: $('d-obs').value.trim(),
     primeiraMensagem: $('d-primeira').value.trim(),
+    canalVenda: $('d-canal').value,
+    posVendaEnviado: $('d-posvenda').value === 'sim',
     tags
   };
+  if(novo.canalVenda === 'loja') novo.compareceu = true;
+  if(novo.posVendaEnviado && novo.etapa !== 'vendido') novo.etapa = 'vendido';
   // Trocar a origem na ficha é decisão humana: trava a classificação
   // automática para este lead e nenhuma reclassificação futura mexe nele.
   if(novo.origem !== l.origem){ novo.origemManual = true; novo.origemAuto = ''; novo.origemConfianca = ''; }
@@ -1643,7 +1773,8 @@ const CAMPOS_ACEITOS = new Set([
   'telefone','nome','vendedora','origem','campanha','modelo','cor','numeracao','etapa','tags',
   'primeiroContato','ultimaCliente','ultimaLoja','msgsCliente','msgsLoja','agendadoPara',
   'agendadoHora','compareceu','valorVenda','dataVenda','repescagens','bloquearRepescagem',
-  'motivoBloqueio','obs','primeiraMensagem','origemManual','lembretes'
+  'motivoBloqueio','obs','primeiraMensagem','origemManual','lembretes',
+  'posVendaEnviado','canalVenda'
 ]);
 
 async function importarPayload(payload){
@@ -1804,6 +1935,7 @@ window.CRM = {
   resumo:   () => metricas(),
   classificar: (texto) => classificarOrigem(texto),
   regras:   () => REGRAS_ORIGEM.map(r => ({id:r.id, origem:r.origem, confianca:r.confianca, reconhece:r.desc})),
+  marcadoresPosVenda: () => MARCADORES_POSVENDA,
   lembretes: (vend) => montarAutomacoes(vend || '').map(a => ({fila: a.nome, quando: a.quando,
               clientes: a.itens.map(l => ({telefone:l.telefone, nome:l.nome, vendedora:l.vendedora,
                                            visita:l.agendadoPara, texto:a.texto(l)}))})).filter(a => a.clientes.length),
@@ -1849,7 +1981,9 @@ FORMATO
       "msgsLoja":        9,
       "agendadoPara":    "2026-08-12",     quando combinou de vir à loja
       "agendadoHora":    "15:00",
-      "compareceu":      true,
+      "compareceu":      true,             veio à loja — NÃO deduza de ter comprado
+      "posVendaEnviado": true,             achou a mensagem automática de pós-venda na conversa
+      "canalVenda":      "loja | entrega", como fechou: veio à loja ou recebeu em casa
       "valorVenda":      349.90,
       "obs":             "texto livre"
     }]
@@ -1874,13 +2008,25 @@ CLASSIFICAÇÃO AUTOMÁTICA DE ORIGEM
   não precisa de IA e não erra. Origem definida na mão na ficha nunca é sobrescrita.
   O que a regra não conseguir classificar cai na fila de conferência, na aba Automações.
 
+COMO MARCAR VENDA
+
+  A mensagem automática de pós-venda é marcador EXATO de compra fechada. Procure
+  por estes textos na conversa e mande posVendaEnviado: true —
+  ${MARCADORES_POSVENDA.map(t=>'"'+t+'"').join(' ou ')}
+  O CRM move o lead para 'vendido' sozinho.
+
+  E marque a ROTA: "loja" quando o cliente veio e fechou, "entrega" quando fechou
+  sem vir. Venda de entrega NÃO é comparecimento — se você marcar compareceu:true
+  numa venda de entrega, a taxa de visita à loja fica inflada.
+
 O QUE A IA (CLAUDE) PRECISA DECIDIR, PORQUE REGRA NÃO RESOLVE
 
   · etapa          até onde a conversa chegou
   · tags           preço só em áudio, sem resposta, pediu desconto, já comprou...
   · modelo/cor/numeracao   o que o cliente escolheu, escrito de mil formas
   · agendadoPara   quando ele disse que vem ("sábado", "depois do dia 20")
-  · compareceu     se apareceu na loja`;
+  · compareceu     se apareceu na loja
+  · canalVenda     loja ou entrega`;
 
 /* ══════════════════ NAVEGAÇÃO ══════════════════ */
 

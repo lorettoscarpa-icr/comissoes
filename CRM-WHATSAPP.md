@@ -120,6 +120,8 @@ window.CRM.lembretes()     // filas de visita marcada, com o texto pronto
 | `modelo` · `cor` · `numeracao` | IA — o cliente escreve de mil formas |
 | `agendadoPara` | IA — "sábado", "depois do dia 20" viram data |
 | `compareceu` | IA — se apareceu na loja |
+| `posVendaEnviado` | **Texto exato** — procurar a mensagem de pós-venda na conversa |
+| `canalVenda` | IA — fechou na loja ou pediu entrega |
 
 ---
 
@@ -156,6 +158,49 @@ Três garantias:
 
 Para adicionar um padrão: inclua a frase em `REGRAS_ORIGEM`, no `crm.html`, e clique em
 Reclassificar tudo.
+
+---
+
+## Como a venda é medida
+
+### O marcador de compra
+
+A **mensagem automática de pós-venda** é marcador determinístico de compra fechada — o
+mesmo raciocínio do template de anúncio. Quem tem esse texto na conversa comprou; quem
+recebeu a localização e **não** tem é exatamente quem vale chamar de volta.
+
+O Claude procura por `Muito obrigada pela sua compra` ou `Comunidade VIP` durante a
+varredura e manda `posVendaEnviado: true`. O CRM move o lead para *vendido* sozinho.
+
+### As duas rotas de venda
+
+| Rota | O que é |
+|---|---|
+| **Na loja** | O cliente veio, experimentou e fechou |
+| **Por entrega** | Fechou sem pisar na loja, recebeu em casa |
+
+Isso não é detalhe de cadastro. **Venda por entrega não é comparecimento.** Contar as duas
+juntas esconde qual rota cada vendedora domina — e uma vendedora que fatura bem só por
+entrega tem um problema de convencimento presencial que fica invisível.
+
+> **Correção feita nesta versão:** o funil deduzia o comparecimento pela posição no funil —
+> quem estava em *vendido* contava como tendo passado por *compareceu*. Toda venda de
+> entrega era contada como visita à loja e a taxa de comparecimento ficava inflada. Agora
+> **Compareceu conta só marcação explícita**.
+
+Como o caminho da entrega pula a loja, o funil pode **crescer** em *Vendido* em relação a
+*Compareceu*. Não é defeito: a barra vem marcada com `+N por entrega`.
+
+### Conversão em três níveis
+
+| Nível | O que diagnostica |
+|---|---|
+| **Lead → visita** | Convencimento no WhatsApp |
+| **Visita → venda** | A loja: estoque, numeração, atendimento presencial |
+| **Lead → venda** | O resultado final |
+
+São problemas com soluções opostas. Quem tem lead→visita baixa precisa melhorar a conversa;
+quem tem visita→venda baixa precisa olhar estoque e atendimento na loja.
 
 ---
 

@@ -286,6 +286,8 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
       </div>
     </div>
 
+    <div id="frescor"></div>
+
     <!-- ───────── MEU DIA ───────── -->
     <div class="pag" id="pag-meudia">
       <div class="slbl">O que fazer agora <span class="slbl-tag" id="tag-dia">—</span></div>
@@ -294,12 +296,24 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         vem antes de qualquer repescagem — correr atrás de quem sumiu enquanto alguém espera é trocar
         dinheiro certo por dinheiro incerto. Desça de cima para baixo.
       </div>
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-tit">Cliente combinou de vir</div>
+        <div class="card-sub">O único dado que você digita. Telefone e dia — o resto o CRM preenche.</div>
+        <div class="filtros" style="margin:0;">
+          <input class="busca" id="mv-fone" placeholder="Telefone do cliente" inputmode="tel">
+          <input class="inp" id="mv-data" type="date" style="margin:0;width:auto;">
+          <input class="inp" id="mv-hora" placeholder="15:00" style="margin:0;width:90px;">
+          <button class="btn btn-sm btn-ok" onclick="marcarVisitaRapido()">Marcar visita</button>
+        </div>
+        <div id="mv-res" class="card-sub" style="margin:12px 0 0;"></div>
+      </div>
       <div id="dia-resumo"></div>
       <div id="meudia" style="margin-top:18px;"></div>
     </div>
 
     <!-- ───────── PAINEL ───────── -->
     <div class="pag ativa" id="pag-painel">
+      <div id="conflitos"></div>
       <div class="slbl">Resumo do mês <span class="slbl-tag" id="tag-periodo">—</span></div>
       <div class="tiles" id="tiles"></div>
 
@@ -315,6 +329,27 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
           <div class="card-sub">Leads que fecharam pedido, sobre o total de leads que ela atendeu</div>
           <div class="bars" id="ch-conv"></div>
         </div>
+      </div>
+
+      <div class="slbl">Velocidade de resposta</div>
+      <div class="card">
+        <div class="card-tit">Quanto o cliente espera pela primeira resposta</div>
+        <div class="card-sub">Mediana, não média — uma conversa respondida três dias depois puxaria a média e esconderia o comportamento normal. O percentual em 30 minutos é o que dá para virar meta.</div>
+        <div class="tiles" style="margin-bottom:20px;">
+          <div class="tile"><div class="lbl">Mediana</div><div class="val" id="frt-med">—</div>
+            <div class="hint" id="frt-amostra">—</div></div>
+          <div class="tile"><div class="lbl">Respondidos em 30 min</div><div class="val verde" id="frt-30">—</div>
+            <div class="hint">quanto mais alto, menos cliente some</div></div>
+        </div>
+        <div class="bars" id="ch-frt"></div>
+      </div>
+
+      <div class="slbl">Por que a loja perde</div>
+      <div class="card">
+        <div class="card-tit">Motivo das perdas</div>
+        <div class="card-sub">Perder por preço e perder por não ter o 43 em estoque são problemas com soluções opostas. Sem o motivo, os dois viram o mesmo número.</div>
+        <div class="bars" id="ch-perda"></div>
+        <div id="perda-nota"></div>
       </div>
 
       <div class="slbl">Conversão em três níveis</div>
@@ -674,6 +709,19 @@ const TAGS = [
 const TAG_NOME = Object.fromEntries(TAGS.map(t=>[t.id,t.nome]));
 const TAGS_BLOQUEIO = TAGS.filter(t=>t.bloqueia).map(t=>t.id);
 
+/* Lista fechada, como o briefing pede. Campo aberto viraria texto livre e
+   ninguém conseguiria somar — e a diferença entre perder por preço e perder por
+   não ter o 43 em estoque são dois problemas com soluções opostas. */
+const MOTIVOS_PERDA = [
+  {id:'preco',        nome:'Preço',                    desc:'Achou caro ou foi para um mais barato'},
+  {id:'sem_estoque',  nome:'Sem estoque na numeração', desc:'A loja não tinha o número dele'},
+  {id:'sumiu',        nome:'Sumiu',                    desc:'Parou de responder e não voltou'},
+  {id:'outro_lugar',  nome:'Comprou em outro lugar',   desc:'Fechou com concorrente'},
+  {id:'fora_cidade',  nome:'Fora da cidade',           desc:'Frete ou distância inviabilizou'},
+  {id:'so_pesquisa',  nome:'Só pesquisando',           desc:'Não tinha intenção de comprar agora'}
+];
+const MOTIVO_NOME = Object.fromEntries(MOTIVOS_PERDA.map(m=>[m.id,m.nome]));
+
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const DIAS_SEM = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
 
@@ -717,6 +765,9 @@ let MSGS_DIA = {};     // 'YYYY-MM-DD' -> { Vendedora: {recebidas, enviadas} }
 /* Espelho das coleções da Central de Pagamentos. SOMENTE LEITURA — o CRM nunca
    escreve nelas. A Central é a fonte de verdade da venda (vem do Kigi); o CRM é
    a fonte da conversa. Cruzar os dois é o que dá o número que nenhum tem sozinho. */
+let VARREDURA = null;   // {ultima, porVendedora:{...}} — quando os dados foram atualizados
+const DIAS_DADO_VELHO = 2;
+
 let CENTRAL = { fechamento: null, metas: null, atingimentos: null,
                 entregas: null, metasLS: null, historico: null };
 
@@ -816,14 +867,18 @@ function saudacao(){
 /* ══════════════════ MODELO DO LEAD ══════════════════ */
 function leadVazio(fone){
   return {
-    telefone: fone, nome: '', vendedora: VENDEDORAS[0],
+    // Sem dona por padrão: 'Jhennifer' como default fazia todo lead novo nascer
+    // dela e disparava conflito falso na primeira varredura de outra conta.
+    telefone: fone, nome: '', vendedora: '', donoDesde: '', donoManual: false, conflitos: [],
     origem: 'desconhecida', campanha: '',
     modelo: '', cor: '', numeracao: '',
     etapa: 'novo', tags: [],
     primeiroContato: hoje(), ultimaCliente: '', ultimaLoja: '',
     msgsCliente: 0, msgsLoja: 0,
     agendadoPara: '', agendadoHora: '',
-    compareceu: null, valorVenda: 0, dataVenda: '',
+    compareceu: null, valorVenda: 0, dataVenda: '', motivoPerda: '',
+    reserva: null,
+    primeiroContatoEm: '', primeiraRespostaEm: '',
     repescagens: [], bloquearRepescagem: false, motivoBloqueio: '',
     primeiraMensagem: '', origemAuto: '', origemConfianca: '', origemManual: false,
     lembretes: [], posVendaEnviado: false, canalVenda: '',
@@ -974,6 +1029,22 @@ function mesclarLead(atual, novo){
       r.lembretes = Object.values(porCh);
       continue;
     }
+    if(k === 'vendedora'){
+      // A DONA NUNCA É TROCADA EM SILÊNCIO. Como o telefone é a chave única,
+      // a varredura de outra conta sobrescrevia o registro e o lead mudava de
+      // carteira sozinho — levando comissão junto. Com o recorte por vendedora
+      // ficou pior ainda: o lead sumia do "Meu dia" de uma e aparecia no da
+      // outra sem ninguém saber. Agora, divergência vira CONFLITO para alguém
+      // decidir; quem chegou primeiro continua dono até lá.
+      if(!atual.vendedora){ r.vendedora = v; r.donoDesde = atual.donoDesde || hoje(); continue; }
+      if(atual.vendedora === v) continue;
+      const jaAberto = (atual.conflitos||[]).some(c => c && c.vendedora === v && !c.resolvido);
+      if(!jaAberto){
+        r.conflitos = [...(atual.conflitos||[]),
+          {vendedora: v, quando: new Date().toISOString(), resolvido: false}];
+      }
+      continue;   // mantém a dona atual
+    }
     if(k === 'etapa'){
       // nunca faz o lead ANDAR PARA TRÁS no funil por uma leitura incompleta,
       // mas 'perdido' sempre vale (é uma decisão, não uma dedução)
@@ -1008,6 +1079,35 @@ function mesclarLead(atual, novo){
 
 /* Até onde este lead chegou — usado pelo funil e pelas filas. */
 const rankAlcancado = l => Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK[l.etapa] ?? -1);
+
+const conflitosAbertos = l => (l.conflitos||[]).filter(c => c && !c.resolvido);
+const temConflito = l => conflitosAbertos(l).length > 0;
+
+/* Tempo até a primeira resposta, em minutos. É a métrica que o diagnóstico pediu
+   e que nenhum relatório mostrava: cliente perguntando às 10h54 e respondido às
+   14h25 não aparecia em lugar nenhum. */
+function minutosAteResposta(l){
+  if(!l.primeiroContatoEm || !l.primeiraRespostaEm) return null;
+  const a = new Date(l.primeiroContatoEm), b = new Date(l.primeiraRespostaEm);
+  if(isNaN(a) || isNaN(b)) return null;
+  const m = Math.round((b - a) / 60000);
+  return m >= 0 ? m : null;
+}
+function duracaoBonita(min){
+  if(min === null || min === undefined) return '—';
+  if(min < 60) return `${min} min`;
+  const h = Math.floor(min/60), r = min%60;
+  if(h < 24) return r ? `${h}h${String(r).padStart(2,'0')}` : `${h}h`;
+  return `${Math.floor(h/24)}d ${h%24}h`;
+}
+
+/* Reserva: "já separo em seu nome" só vale se virar registro com validade.
+   Hoje a promessa é feita e ninguém separa — o cliente vem, o par não está lá,
+   e queima a visita e a confiança de uma vez. */
+const RESERVA_DIAS = 3;
+const reservaAtiva  = l => l.reserva && !l.reserva.retirada && l.reserva.validade >= hoje();
+const reservaVencida = l => l.reserva && !l.reserva.retirada && l.reserva.validade < hoje();
+const reservaVencendo = l => reservaAtiva(l) && diasDesde(l.reserva.validade) >= -1;
 
 /* Estados de uma repescagem:
      aberto      — a vendedora abriu o WhatsApp com o texto pronto. CONTA no teto.
@@ -1118,6 +1218,10 @@ async function carregarDados(){
   snapLeads.forEach(d => { LEADS[d.id] = migrarOrigem({...leadVazio(d.id), ...d.data(), telefone: d.id}); });
   MSGS_DIA = {};
   snapMsgs.forEach(d => { MSGS_DIA[d.id] = d.data() || {}; });
+  try{
+    const v = await db.collection('crm_config').doc('varredura').get();
+    VARREDURA = v.exists ? v.data() : null;
+  }catch(e){ VARREDURA = null; }
 }
 
 async function salvarLead(lead){
@@ -1145,6 +1249,49 @@ const todosLeads  = () => {
   return v ? arr.filter(l => l.vendedora === v) : arr;
 };
 const leadsDoMes  = () => todosLeads().filter(l => String(l.primeiroContato||'').startsWith(mesPrefixo()));
+
+/* Há quanto tempo cada conta não é varrida. Uma vendedora varrida ontem e outra
+   há uma semana dão um painel que parece coerente e não é. */
+function frescor(){
+  const out = {geral: null, porVend: {}, velhas: []};
+  if(!VARREDURA) return out;
+  out.geral = VARREDURA.ultima ? diasDesde(VARREDURA.ultima.slice(0,10)) : null;
+  for(const v of VENDEDORAS){
+    const q = VARREDURA['v_' + v];
+    const d = q ? diasDesde(q.slice(0,10)) : null;
+    out.porVend[v] = d;
+    if(d === null || d >= DIAS_DADO_VELHO) out.velhas.push(v);
+  }
+  return out;
+}
+
+function renderFrescor(){
+  const f = frescor();
+  const alvo = $('frescor');
+  if(!alvo) return;
+  if(f.geral === null){
+    alvo.innerHTML = `<div class="card" style="border-left:3px solid var(--am);margin-bottom:22px;">
+      <div class="card-tit">Nenhuma varredura registrada</div>
+      <div class="card-sub" style="margin:0;">O painel está mostrando só o que foi cadastrado à mão.
+      Rode uma varredura do WhatsApp para os números começarem a valer.</div></div>`;
+    return;
+  }
+  const velho = f.geral >= DIAS_DADO_VELHO;
+  const escopo = minhaVendedora()
+    ? [minhaVendedora()].filter(v => f.porVend[v] === null || f.porVend[v] >= DIAS_DADO_VELHO)
+    : f.velhas;
+  if(!velho && !escopo.length){
+    alvo.innerHTML = `<div class="card-sub" style="margin:0 0 22px;">
+      Dados atualizados ${f.geral === 0 ? 'hoje' : haQuantoTempo(VARREDURA.ultima.slice(0,10))}.</div>`;
+    return;
+  }
+  alvo.innerHTML = `<div class="card" style="border-left:3px solid var(--er);margin-bottom:22px;">
+    <div class="card-tit">Os dados podem estar velhos</div>
+    <div class="card-sub" style="margin:0;">
+      Última varredura ${haQuantoTempo(VARREDURA.ultima.slice(0,10))}.
+      ${escopo.length ? `Sem atualização recente ${escopo.length === 1 ? 'da conta de' : 'das contas de'} <b>${escopo.map(esc).join(', ')}</b>.` : ''}
+      As filas abaixo refletem aquele momento — quem respondeu depois disso ainda aparece aqui.</div></div>`;
+}
 
 /* ══════════════════ MÉTRICAS ══════════════════ */
 
@@ -1187,6 +1334,25 @@ function metricas(){
   const {dados: msgs, fonte} = msgsDoMes();
   const recebidas = Object.values(msgs).reduce((s,m) => s + m.recebidas, 0);
 
+  /* Mediana, não média: uma conversa respondida três dias depois puxaria a média
+     e esconderia que a maioria é respondida rápido. E o percentual em 30 minutos
+     é o que dá para cobrar — média não vira meta. */
+  const mediana = arr => {
+    if(!arr.length) return null;
+    const o = [...arr].sort((a,b)=>a-b);
+    const m = Math.floor(o.length/2);
+    return o.length % 2 ? o[m] : Math.round((o[m-1]+o[m])/2);
+  };
+  const tempos = leads.map(minutosAteResposta).filter(x => x !== null);
+  const frtMediana = mediana(tempos);
+  const frtEm30 = tempos.length ? Math.round(tempos.filter(t=>t<=30).length/tempos.length*100) : null;
+
+  const perdidos = leads.filter(l => l.etapa === 'perdido');
+  const porMotivo = MOTIVOS_PERDA.map(m => ({...m,
+    total: perdidos.filter(l => l.motivoPerda === m.id).length}))
+    .filter(m => m.total > 0).sort((a,b) => b.total - a.total);
+  const semMotivo = perdidos.filter(l => !l.motivoPerda).length;
+
   const visitas       = leads.filter(veioALoja);
   const vendasLoja    = vendidos.filter(l => canalDe(l) === 'loja');
   const vendasEntrega = vendidos.filter(l => canalDe(l) === 'entrega');
@@ -1204,6 +1370,8 @@ function metricas(){
       vendasLoja: vLoja.length, vendasEntrega: vEnt.length,
       // Os três níveis de conversão. São diagnósticos diferentes:
       // lead→visita mede convencimento; visita→venda mede loja e atendimento presencial.
+      frtMediana: mediana(meus.map(minutosAteResposta).filter(x=>x!==null)),
+      frtRespondidos: meus.map(minutosAteResposta).filter(x=>x!==null).length,
       convLeadVisita:  pct(comp.length, meus.length),
       convVisitaVenda: pct(vLoja.length, comp.length),
       conversao:       pct(vend.length, meus.length),
@@ -1262,7 +1430,10 @@ function metricas(){
     conversao: pct(vendidos.length, leads.length),
     faturado, ticket: vendidos.length ? faturado/vendidos.length : 0,
     recebidas, fonteMsgs: fonte, porVend, porOrigem, porGrupo, porCanal, funil,
-    visitas: visitas.length,
+    visitas: visitas.length, frtMediana, frtEm30, frtAmostra: tempos.length,
+    porMotivo, semMotivo, perdidos: perdidos.length,
+    reservasAtivas: todosLeads().filter(reservaAtiva).length,
+    reservasVencidas: todosLeads().filter(reservaVencida).length,
     convLeadVisita:  pct(visitas.length, leads.length),
     convVisitaVenda: pct(vendasLoja.length, visitas.length),
     vendasLoja, vendasEntrega, vendasIndef
@@ -1505,6 +1676,25 @@ function renderPainel(){
     rotulo: `${v.conversao}% <small>(${v.vendas}/${v.leads})</small>`,
     tip: `${v.vendedora}: ${v.vendas} vendas em ${v.leads} leads · ${v.compareceram} vieram à loja`
   })));
+
+  $('frt-med').textContent = duracaoBonita(m.frtMediana);
+  $('frt-amostra').textContent = m.frtAmostra
+    ? `medido em ${m.frtAmostra} conversa${m.frtAmostra===1?'':'s'}`
+    : 'a varredura ainda não trouxe os horários';
+  $('frt-30').textContent = m.frtEm30 === null ? '—' : m.frtEm30 + '%';
+  barras($('ch-frt'), m.porVend.filter(v=>v.frtMediana!==null).map(v => ({
+    nome: v.vendedora, valor: v.frtMediana, rotulo: duracaoBonita(v.frtMediana),
+    tip: `${v.vendedora}: mediana ${duracaoBonita(v.frtMediana)} em ${v.frtRespondidos} conversas`
+  })));
+
+  barras($('ch-perda'), m.porMotivo.map(x => ({
+    nome: x.nome, valor: x.total, rotulo: `${x.total} <small>(${pct(x.total, m.perdidos)}%)</small>`,
+    tip: `${x.nome}: ${x.desc}`
+  })));
+  $('perda-nota').innerHTML = m.semMotivo
+    ? `<div class="card-sub" style="margin:16px 0 0;">${m.semMotivo} lead(s) marcados como perdidos <b>sem motivo informado</b>.
+       Abra a ficha e escolha o motivo — sem isso não dá para saber o que consertar.</div>`
+    : (m.perdidos ? '' : '<div class="vazio">Nenhuma perda registrada no período</div>');
 
   const semCanal = m.total - m.porCanal.reduce((s,c) => s + c.leads, 0);
   $('tb-canais').innerHTML = m.porCanal.map(c => `<tr>
@@ -1880,6 +2070,13 @@ function abrirLead(fone){
         <option value="sim" ${l.posVendaEnviado?'selected':''}>Sim — compra confirmada</option>
       </select></div>
     </div>
+    <div class="campo" id="campo-motivo" style="display:${l.etapa==='perdido'?'block':'none'};">
+      <label>Por que perdeu?</label>
+      <select class="sel" id="d-motivo">
+        <option value="">— escolha o motivo —</option>
+        ${MOTIVOS_PERDA.map(x=>`<option value="${x.id}" ${x.id===l.motivoPerda?'selected':''}>${esc(x.nome)} — ${esc(x.desc)}</option>`).join('')}
+      </select>
+    </div>
     <div class="campo"><label>Veio à loja?</label><select class="sel" id="d-comp">
       <option value="">Ainda não se sabe</option>
       <option value="sim" ${l.compareceu===true?'selected':''}>Sim, apareceu</option>
@@ -1912,6 +2109,25 @@ function abrirLead(fone){
         ${Number(l.msgsCliente||0)} recebidas / ${Number(l.msgsLoja||0)} enviadas</div>
     </div>
 
+    <div class="hist">
+      <label style="display:block;font-size:9px;letter-spacing:2.2px;text-transform:uppercase;color:var(--cr3);margin-bottom:10px;">Reserva do par</label>
+      ${l.reserva
+        ? `<div class="hist-it"><b>${esc([l.reserva.modelo, l.reserva.cor, l.reserva.numeracao && ('nº '+l.reserva.numeracao)].filter(Boolean).join(' · '))}</b>
+             — ${l.reserva.retirada ? 'retirada' : (l.reserva.validade < hoje()
+                ? `<span style="color:#e0a09c;">venceu em ${dataBonita(l.reserva.validade)}</span>`
+                : `vale até ${dataBonita(l.reserva.validade)}`)}</div>
+           <div class="dr-rodape" style="margin-top:12px;">
+             ${!l.reserva.retirada ? `<button class="btn btn-sm btn-ok" onclick="retirarReserva('${esc(l.telefone)}')">Cliente retirou</button>
+             <button class="btn btn-sm" onclick="separarPar('${esc(l.telefone)}')">Renovar ${RESERVA_DIAS} dias</button>` : ''}
+             <button class="btn btn-sm btn-er" onclick="soltarReserva('${esc(l.telefone)}')">Soltar o par</button>
+           </div>`
+        : `<div class="hist-it">Nenhum par separado.</div>
+           <div class="dr-rodape" style="margin-top:12px;">
+             <button class="btn btn-sm" onclick="separarPar('${esc(l.telefone)}')">Separar em nome dele por ${RESERVA_DIAS} dias</button>
+           </div>`}
+      <div class="hist-it" style="border:none;color:var(--cr3);">Só prometa "já separo em seu nome" se registrar aqui — senão o cliente vem e o par não está.</div>
+    </div>
+
     <div class="dr-rodape">
       <button class="btn btn-ok" onclick="salvarDrawer()">Salvar</button>
       <a class="btn" href="https://wa.me/${esc(l.telefone)}" target="_blank" rel="noopener">Abrir no WhatsApp</a>
@@ -1919,6 +2135,11 @@ function abrirLead(fone){
       <button class="btn btn-er btn-sm" onclick="apagarLead('${esc(l.telefone)}')">Apagar</button>
     </div>`;
 
+  const selEtapa = $('d-etapa');
+  if(selEtapa) selEtapa.onchange = () => {
+    const c = $('campo-motivo');
+    if(c) c.style.display = selEtapa.value === 'perdido' ? 'block' : 'none';
+  };
   $('drawer').classList.add('open');
   $('drawer-bg').classList.add('open');
 }
@@ -1953,9 +2174,15 @@ async function salvarDrawer(){
     obs: $('d-obs').value.trim(),
     primeiraMensagem: $('d-primeira').value.trim(),
     canalVenda: $('d-canal').value,
+    motivoPerda: $('d-motivo') ? $('d-motivo').value : (l.motivoPerda||''),
     posVendaEnviado: $('d-posvenda').value === 'sim',
     tags
   };
+  if(novo.etapa === 'perdido' && !novo.motivoPerda){
+    toast('Escolha o motivo da perda — sem ele não dá para saber o que consertar', true);
+    return;
+  }
+  if(novo.etapa !== 'perdido') novo.motivoPerda = '';
   if(novo.canalVenda === 'loja') novo.compareceu = true;
   if(novo.posVendaEnviado && novo.etapa !== 'vendido') novo.etapa = 'vendido';
   // Trocar a origem na ficha é decisão humana: trava a classificação
@@ -1976,6 +2203,71 @@ async function salvarDrawer(){
     fecharDrawer();
     render();
   }catch(e){ toast('Erro ao salvar: ' + e.message, true); }
+}
+
+/* Decide de quem é o lead. Decisão humana trava a varredura: donoManual impede
+   que a próxima leitura reabra o mesmo conflito. */
+async function resolverConflito(fone, vendedora){
+  const l = LEADS[fone];
+  if(!l || !VENDEDORAS.includes(vendedora)) return;
+  const novo = {...l, vendedora, donoManual: true,
+    donoDesde: l.donoDesde || hoje(),
+    conflitos: (l.conflitos||[]).map(c => ({...c, resolvido: true, decidido: vendedora}))};
+  try{
+    await salvarLead(novo);
+    toast(`Lead agora é da ${vendedora}`);
+    render();
+    if(LEAD_ABERTO === fone) abrirLead(fone);
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+function renderConflitos(){
+  const alvo = $('conflitos');
+  if(!alvo) return;
+  const comConflito = Object.values(LEADS).filter(temConflito);
+  if(!comConflito.length){ alvo.innerHTML = ''; return; }
+  alvo.innerHTML = `<div class="card" style="border-left:3px solid var(--er);margin-bottom:22px;">
+    <div class="card-tit">${comConflito.length} cliente(s) falando com mais de uma vendedora</div>
+    <div class="card-sub">O telefone apareceu na varredura de outra conta. Ninguém foi trocado de dona —
+      escolha quem fica, e a varredura para de reabrir o caso.</div>
+    <div class="tab-wrap"><table class="tab"><thead><tr>
+      <th>Cliente</th><th>Dona atual</th><th>Também apareceu com</th><th>Quem fica</th>
+    </tr></thead><tbody>
+    ${comConflito.slice(0,40).map(l => `<tr>
+      <td><div class="t-nome">${esc(l.nome || 'Sem nome')}</div><div class="t-fone">${foneBonito(l.telefone)}</div></td>
+      <td>${esc(l.vendedora || '—')}${l.donoDesde ? `<div class="t-fone">desde ${dataBonita(l.donoDesde)}</div>` : ''}</td>
+      <td>${conflitosAbertos(l).map(c=>`<span class="pill pill-am">${esc(c.vendedora)}</span>`).join(' ')}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${[l.vendedora, ...conflitosAbertos(l).map(c=>c.vendedora)].filter(Boolean)
+          .map(v => `<button class="btn btn-sm" onclick="resolverConflito('${esc(l.telefone)}','${esc(v)}')">${esc(v)}</button>`).join('')}
+      </div></td>
+    </tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+
+async function separarPar(fone){
+  const l = LEADS[fone];
+  if(!l) return;
+  if(!l.modelo){ toast('Defina o modelo na ficha antes de separar', true); return; }
+  const validade = new Date(Date.now() + RESERVA_DIAS*86400000).toISOString().slice(0,10);
+  const novo = {...l, reserva: {modelo:l.modelo, cor:l.cor||'', numeracao:l.numeracao||'',
+    criadaEm: hoje(), validade, retirada:false, por: USUARIO || 'painel'}};
+  try{ await salvarLead(novo); toast(`Par separado até ${dataBonita(validade)}`); render(); if(LEAD_ABERTO===fone) abrirLead(fone); }
+  catch(e){ toast('Erro: '+e.message, true); }
+}
+async function retirarReserva(fone){
+  const l = LEADS[fone];
+  if(!l || !l.reserva) return;
+  const novo = {...l, reserva: {...l.reserva, retirada:true, retiradaEm: hoje()}};
+  try{ await salvarLead(novo); toast('Reserva baixada'); render(); if(LEAD_ABERTO===fone) abrirLead(fone); }
+  catch(e){ toast('Erro: '+e.message, true); }
+}
+async function soltarReserva(fone){
+  const l = LEADS[fone];
+  if(!l) return;
+  const novo = {...l, reserva: null};
+  try{ await salvarLead(novo); toast('Par liberado para o estoque'); render(); if(LEAD_ABERTO===fone) abrirLead(fone); }
+  catch(e){ toast('Erro: '+e.message, true); }
 }
 
 async function apagarLead(fone){
@@ -2561,7 +2853,7 @@ const CAMPOS_ACEITOS = new Set([
   'primeiroContato','ultimaCliente','ultimaLoja','msgsCliente','msgsLoja','agendadoPara',
   'agendadoHora','compareceu','valorVenda','dataVenda','repescagens','bloquearRepescagem',
   'motivoBloqueio','obs','primeiraMensagem','origemManual','lembretes',
-  'posVendaEnviado','canalVenda'
+  'posVendaEnviado','canalVenda','motivoPerda','primeiroContatoEm','primeiraRespostaEm','reserva'
 ]);
 
 async function importarPayload(payload){
@@ -2634,6 +2926,17 @@ async function importarPayload(payload){
     lote.set(db.collection('crm_msgs').doc(dia), limpo, {merge:true});
     dias++;
   }
+
+  // Carimba QUANDO os dados foram atualizados, e de qual conta. Sem isso o painel
+  // parece normal com dado de cinco dias atrás — e decisão sobre dado velho é
+  // pior do que não ter painel.
+  const agora = new Date().toISOString();
+  const carimbo = {ultima: agora, por: payload.por || 'claude'};
+  if(vendPadrao) carimbo['v_' + vendPadrao] = agora;
+  try{
+    await db.collection('crm_config').doc('varredura').set(carimbo, {merge:true});
+    VARREDURA = {...(VARREDURA||{}), ...carimbo};
+  }catch(e){ avisos.push('Não consegui carimbar a data da varredura: ' + e.message); }
 
   await lote.commit();
   return {novos, atualizados, dias, avisos};
@@ -2728,6 +3031,11 @@ window.CRM = {
               porque:x.acao.porque(x.lead), feita:x.feita,
               texto: x.acao.texto ? x.acao.texto(x.lead) : null})),
   acoes:    () => ACOES.map(a => ({id:a.id, prio:a.prio, titulo:a.titulo, consomeTeto:a.consomeTeto})),
+  frescor:  () => frescor(),
+  conflitos: () => Object.values(LEADS).filter(temConflito).map(l => ({telefone:l.telefone,
+              nome:l.nome, dona:l.vendedora, tambem: conflitosAbertos(l).map(c=>c.vendedora)})),
+  reservas: () => todosLeads().filter(l=>l.reserva).map(l => ({telefone:l.telefone, nome:l.nome,
+              ...l.reserva, ativa: reservaAtiva(l), vencida: reservaVencida(l)})),
   definirUsuario: async (email, vendedora, papel) => {
     if(!ehGestao()) return 'Só a gestão pode alterar usuários';
     if(vendedora && !VENDEDORAS.includes(vendedora)) return `Vendedora inválida. Use: ${VENDEDORAS.join(', ')}`;
@@ -2778,6 +3086,9 @@ FORMATO
       "etapa":           ${JSON.stringify(ETAPAS.map(e=>e.id))},
       "tags":            ${JSON.stringify(TAGS.map(t=>t.id))},
       "primeiroContato": "2026-08-03",     AAAA-MM-DD
+      "primeiroContatoEm":"2026-08-03T10:15:00",  1ª mensagem DO CLIENTE, com hora
+      "primeiraRespostaEm":"2026-08-03T16:26:00", 1ª resposta DA LOJA, com hora
+                                           esses dois medem quanto o cliente esperou
       "ultimaCliente":   "2026-08-05",     última mensagem VINDA do cliente
       "ultimaLoja":      "2026-08-05",     última mensagem enviada PELA loja
       "msgsCliente":     12,               recebidas nessa conversa
@@ -2787,6 +3098,8 @@ FORMATO
       "compareceu":      true,             veio à loja — NÃO deduza de ter comprado
       "posVendaEnviado": true,             achou a mensagem automática de pós-venda na conversa
       "canalVenda":      "loja | entrega", como fechou: veio à loja ou recebeu em casa
+      "motivoPerda":     ${JSON.stringify(MOTIVOS_PERDA.map(m=>m.id))},
+                                           obrigatório quando etapa = "perdido"
       "valorVenda":      349.90,
       "obs":             "texto livre"
     }]
@@ -2852,7 +3165,20 @@ O QUE A IA (CLAUDE) PRECISA DECIDIR, PORQUE REGRA NÃO RESOLVE
   · modelo/cor/numeracao   o que o cliente escolheu, escrito de mil formas
   · agendadoPara   quando ele disse que vem ("sábado", "depois do dia 20")
   · compareceu     se apareceu na loja
-  · canalVenda     loja ou entrega`;
+  · canalVenda     loja ou entrega
+  · motivoPerda    por que não fechou, quando a conversa morreu
+
+MEDIR O TEMPO DE RESPOSTA
+
+  Mande "primeiroContatoEm" e "primeiraRespostaEm" com HORA. É deles que sai a
+  métrica que o diagnóstico pediu — o caso de perguntar às 10h15 e ser respondido
+  às 16h26 não aparece em relatório nenhum sem esses dois carimbos.
+
+A DONA DO LEAD NÃO É TROCADA PELA VARREDURA
+
+  Se um telefone que já tem dona aparecer na varredura de outra conta, o CRM
+  NÃO troca: abre um conflito para alguém decidir e mantém quem chegou primeiro.
+  Mande "vendedora" normalmente — o CRM cuida do resto.`;
 
 /* ══════════════════ O QUE FAZER AGORA ══════════════════
    O CRM decide a próxima ação de cada cliente e ordena a lista. A vendedora não
@@ -2909,6 +3235,20 @@ const ACOES = [
                  && !['vendido','perdido'].includes(l.etapa),
     porque: l => `Tinha combinado para ${dataBonita(l.agendadoPara)} e não veio.`,
     texto: l => (AUTOMACOES.find(a=>a.id==='noshow')||{}).texto(l), consomeTeto:false
+  },
+  {
+    id:'reserva_vencendo', prio:5.5, rotulo:'Avisar', tom:'am',
+    titulo:'Par separado vencendo',
+    quando: l => reservaVencendo(l) && !['vendido','perdido'].includes(l.etapa),
+    porque: l => `O ${[l.reserva.modelo, l.reserva.numeracao && ('nº '+l.reserva.numeracao)].filter(Boolean).join(' ')} está separado até ${dataBonita(l.reserva.validade)}. Depois disso volta para o estoque.`,
+    texto: l => {
+      const p = (l.nome||'').trim().split(/\s+/)[0];
+      const item = [l.reserva.modelo, l.reserva.cor && l.reserva.cor.toLowerCase(),
+                    l.reserva.numeracao && ('no ' + l.reserva.numeracao)].filter(Boolean).join(' ');
+      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+        `Ainda estou com o ${item} separado aqui em seu nome.`,
+        `Consigo segurar até ${dataBonita(l.reserva.validade)} — dá para você passar até lá?`].join('\n\n');
+    }, consomeTeto:false
   },
   {
     id:'localizacao', prio:6, rotulo:'Chamar', tom:'',
@@ -3073,6 +3413,39 @@ function renderMeuDia(){
     : '');
 }
 
+/* Marcar visita em dois toques. Antes eram seis passos — abrir Leads, buscar,
+   abrir a ficha, achar o campo, preencher, salvar — no meio de um atendimento.
+   Aceita telefone em qualquer formato e cria o lead se ainda não existir. */
+async function marcarVisitaRapido(){
+  const raw = $('mv-fone').value.trim();
+  const data = $('mv-data').value;
+  const hora = $('mv-hora').value.trim();
+  const res = $('mv-res');
+  if(!raw || !data){ res.innerHTML = '<span style="color:#e0a09c;">Preencha o telefone e o dia.</span>'; return; }
+  const fone = normFone(raw);
+  if(fone.length < 12){ res.innerHTML = '<span style="color:#e0a09c;">Telefone inválido.</span>'; return; }
+
+  let l = LEADS[fone];
+  const novoLeadCriado = !l;
+  if(!l){
+    l = leadVazio(fone);
+    l.vendedora = minhaVendedora() || l.vendedora;
+    l.donoDesde = hoje();
+  }
+  const novo = {...l, agendadoPara: data, agendadoHora: hora, compareceu: null};
+  if((ETAPA_RANK[novo.etapa] ?? 0) < ETAPA_RANK.agendado){
+    novo.etapa = 'agendado';
+    novo.etapaMaxRank = Math.max(novo.etapaMaxRank ?? -1, ETAPA_RANK.agendado);
+  }
+  try{
+    await salvarLead(novo);
+    res.innerHTML = `<span style="color:#a8d8a8;">${esc(novo.nome || foneBonito(fone))} marcado para ${dataBonita(data)}${hora ? ' às ' + esc(hora) : ''}.` +
+      `${novoLeadCriado ? ' Lead criado agora — o nome entra na próxima varredura.' : ''}</span>`;
+    $('mv-fone').value = ''; $('mv-hora').value = '';
+    render();
+  }catch(e){ res.innerHTML = `<span style="color:#e0a09c;">Erro: ${esc(e.message)}</span>`; }
+}
+
 /* ══════════════════ NAVEGAÇÃO ══════════════════ */
 
 function irPara(pag){
@@ -3085,6 +3458,8 @@ function irPara(pag){
 function render(){
   $('mes-atual').textContent = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
   try{
+    renderFrescor();
+    if(ehGestao()) renderConflitos();
     if(PAG_ATUAL === 'meudia')     renderMeuDia();
     if(PAG_ATUAL === 'painel')     renderPainel();
     if(PAG_ATUAL === 'leads')      renderLeads();

@@ -1,0 +1,1604 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loretto Scarpa — CRM WhatsApp</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Barlow:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Tokens da Central de Pagamentos — mesma identidade */
+  --v0:#283d1a;--v1:#374f24;--v2:#46672f;--v3:#60813e;
+  --ou:#d4b45a;--ou2:#ebd48a;--ou3:#b08840;
+  --oud:rgba(212,180,90,.30);--oud2:rgba(212,180,90,.14);
+  --cr:#f8f3e6;--cr2:rgba(248,243,230,.78);--cr3:rgba(248,243,230,.52);
+  --ok:#5cb85c;--er:#c0504a;--am:#d4b45a;
+  /* Superfície dos gráficos (card sobre o verde) — usada na validação de contraste */
+  --surf:#2a3f1d;
+  /* Paleta categórica de ORIGEM — ordem fixa, nunca reciclada.
+     Validada com scripts/validate_palette.js (dark, surface #2a3f1d, --pairs all). */
+  --o1:#ab9226; /* Anúncio    */
+  --o2:#cd6e7c; /* Instagram  */
+  --o3:#2ca1ab; /* Orgânico   */
+  --o4:#8376d5; /* Indicação  */
+  --o5:rgba(248,243,230,.34); /* Não identificada — cinza, fora da paleta categórica */
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Barlow',sans-serif;background:var(--v0);color:var(--cr);min-height:100vh;overflow-x:hidden;font-variant-numeric:lining-nums;}
+
+/* ═════ LOADING / LOGIN ═════ */
+@keyframes spin{to{transform:rotate(360deg);}}
+#auth-loading{position:fixed;inset:0;z-index:300;background:var(--v0);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
+.load-marca{font-family:'Cormorant Garamond',serif;font-size:24px;color:var(--ou);letter-spacing:2px;}
+.load-spin{width:24px;height:24px;border:2px solid rgba(212,180,90,.2);border-top-color:var(--ou);border-radius:50%;animation:spin .8s linear infinite;}
+
+#tela-login{min-height:100vh;display:none;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;
+  background:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(201,168,76,.09),transparent),var(--v0);}
+#tela-login.show{display:flex;}
+.login-box{width:100%;max-width:380px;border:1px solid var(--oud);background:rgba(255,255,255,.015);padding:40px 34px;}
+.login-box h1{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:300;letter-spacing:4px;color:var(--ou);text-transform:uppercase;text-align:center;}
+.login-box .sub{font-size:9px;letter-spacing:3px;color:var(--cr3);text-transform:uppercase;text-align:center;margin-top:8px;margin-bottom:28px;}
+.inp{width:100%;background:rgba(0,0,0,.18);border:1px solid var(--oud2);color:var(--cr);padding:11px 13px;font-family:'Barlow',sans-serif;font-size:13px;letter-spacing:.4px;margin-bottom:12px;}
+.inp:focus{outline:none;border-color:var(--ou);}
+.inp::placeholder{color:var(--cr3);}
+.btn{background:transparent;border:1px solid var(--oud);color:var(--ou);padding:10px 18px;font-family:'Barlow',sans-serif;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;cursor:pointer;transition:all .18s;}
+.btn:hover{background:rgba(212,180,90,.09);border-color:var(--ou);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn-full{width:100%;padding:12px;}
+.btn-ok{border-color:rgba(108,191,108,.45);color:#a8d8a8;}
+.btn-ok:hover{background:rgba(108,191,108,.1);border-color:#6dbf6d;}
+.btn-er{border-color:rgba(192,80,74,.45);color:#e0a09c;}
+.btn-er:hover{background:rgba(192,80,74,.12);border-color:var(--er);}
+.btn-sm{padding:5px 10px;font-size:9px;letter-spacing:1.5px;}
+.login-erro{color:#e0a09c;font-size:11px;letter-spacing:.5px;text-align:center;margin-top:10px;min-height:16px;}
+
+/* ═════ HEADER ═════ */
+#tela-app{display:none;}
+header{background:var(--v0);border-bottom:1px solid var(--oud);padding:16px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;gap:16px;flex-wrap:wrap;}
+.h-marca{font-family:'Cormorant Garamond',serif;font-size:17px;font-weight:300;letter-spacing:5px;color:var(--ou);text-transform:uppercase;white-space:nowrap;}
+.h-sub{font-size:9px;letter-spacing:3px;color:var(--cr3);text-transform:uppercase;margin-top:3px;}
+.h-dir{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.h-email{font-size:10px;letter-spacing:1px;color:var(--cr3);}
+
+/* seletor de mês (mesmo padrão da Central) */
+.mes-selector{display:flex;align-items:center;border:1px solid var(--oud);}
+.mes-nav{background:transparent;border:none;color:var(--ou);width:30px;height:34px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:background .15s;}
+.mes-nav:hover{background:rgba(201,168,76,.1);}
+.mes-atual{font-family:'Cormorant Garamond',serif;font-size:15px;font-style:italic;color:var(--ou2);padding:0 14px;white-space:nowrap;height:34px;display:flex;align-items:center;border-left:1px solid var(--oud);border-right:1px solid var(--oud);min-width:150px;justify-content:center;}
+
+/* ═════ ABAS ═════ */
+.abas{display:flex;gap:0;border-bottom:1px solid var(--oud2);padding:0 28px;background:var(--v0);position:sticky;top:63px;z-index:49;overflow-x:auto;}
+.aba{background:transparent;border:none;border-bottom:2px solid transparent;color:var(--cr3);padding:14px 20px;font-family:'Barlow',sans-serif;font-size:10px;letter-spacing:2.5px;text-transform:uppercase;cursor:pointer;white-space:nowrap;transition:all .18s;}
+.aba:hover{color:var(--cr2);}
+.aba.ativa{color:var(--ou);border-bottom-color:var(--ou);}
+.aba-badge{display:inline-block;margin-left:7px;background:var(--oud2);border:1px solid var(--oud);color:var(--ou);padding:1px 6px;font-size:9px;letter-spacing:.5px;}
+
+main{max-width:1280px;margin:0 auto;padding:32px 24px 90px;}
+.pag{display:none;}
+.pag.ativa{display:block;}
+
+.slbl{font-size:10px;letter-spacing:3.5px;text-transform:uppercase;color:var(--cr3);padding-bottom:12px;border-bottom:1px solid var(--oud2);margin-bottom:22px;margin-top:38px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.slbl:first-child{margin-top:0;}
+.slbl-tag{background:var(--oud2);border:1px solid var(--oud);color:var(--ou);padding:3px 12px;font-size:9px;letter-spacing:1.5px;}
+
+/* ═════ STAT TILES ═════ */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--oud2);border:1px solid var(--oud2);margin-bottom:8px;}
+.tile{background:var(--surf);padding:20px 22px;}
+.tile .lbl{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--cr3);margin-bottom:8px;}
+.tile .val{font-family:'Cormorant Garamond',serif;font-size:34px;font-weight:300;color:var(--ou2);line-height:1;}
+.tile .val.verde{color:#8fd08f;}
+.tile .hint{font-size:10px;letter-spacing:.6px;color:var(--cr3);margin-top:7px;}
+
+/* ═════ CARD / GRÁFICOS ═════ */
+.card{background:var(--surf);border:1px solid var(--oud2);padding:22px 24px;margin-bottom:18px;}
+.card-tit{font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--cr2);margin-bottom:4px;}
+.card-sub{font-size:10px;letter-spacing:.5px;color:var(--cr3);margin-bottom:20px;}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+@media(max-width:860px){.g2{grid-template-columns:1fr;}}
+
+/* barras horizontais — marca fina, ponta arredondada 4px, ancorada na base */
+.bars{display:flex;flex-direction:column;gap:14px;}
+.bar-row{display:grid;grid-template-columns:132px 1fr auto;align-items:center;gap:12px;}
+.bar-nome{font-size:11px;letter-spacing:1.2px;color:var(--cr2);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bar-trk{height:14px;background:rgba(255,255,255,.045);position:relative;}
+.bar-fill{height:100%;border-radius:0 4px 4px 0;transition:width .5s cubic-bezier(.2,.7,.3,1);min-width:2px;}
+.bar-val{font-family:'DM Mono',monospace;font-size:12px;color:var(--ou2);white-space:nowrap;min-width:52px;text-align:right;}
+.bar-val small{color:var(--cr3);font-size:10px;}
+
+/* barra empilhada — 2px de superfície entre segmentos */
+.stack{height:16px;display:flex;background:rgba(255,255,255,.045);}
+.stack-seg{height:100%;border-right:2px solid var(--surf);transition:width .5s cubic-bezier(.2,.7,.3,1);}
+.stack-seg:last-child{border-right:none;}
+.stack-row{display:grid;grid-template-columns:132px 1fr auto;align-items:center;gap:12px;margin-bottom:12px;}
+
+/* legenda */
+.leg{display:flex;flex-wrap:wrap;gap:16px;margin-top:18px;padding-top:14px;border-top:1px solid var(--oud2);}
+.leg-it{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:1.2px;color:var(--cr2);text-transform:uppercase;}
+.leg-sw{width:11px;height:11px;flex-shrink:0;border-radius:2px;}
+
+/* funil */
+.funil{display:flex;flex-direction:column;gap:2px;}
+.fun-row{display:grid;grid-template-columns:150px 1fr;align-items:center;gap:14px;padding:7px 0;}
+.fun-nome{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--cr2);}
+.fun-nome small{display:block;font-size:9px;letter-spacing:.4px;color:var(--cr3);text-transform:none;margin-top:2px;}
+.fun-bar{height:26px;background:rgba(255,255,255,.045);position:relative;display:flex;align-items:center;}
+.fun-fill{height:100%;border-radius:0 4px 4px 0;background:var(--ou3);transition:width .5s cubic-bezier(.2,.7,.3,1);min-width:2px;}
+.fun-txt{position:absolute;left:12px;font-family:'DM Mono',monospace;font-size:12px;color:var(--cr);letter-spacing:.5px;text-shadow:0 1px 3px rgba(0,0,0,.6);}
+.fun-drop{position:absolute;right:10px;font-size:10px;letter-spacing:1px;color:var(--cr3);}
+
+.vazio{text-align:center;padding:46px 20px;color:var(--cr3);font-size:12px;letter-spacing:1px;border:1px dashed var(--oud2);}
+.vazio strong{display:block;color:var(--cr2);font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
+
+/* ═════ TABELA ═════ */
+.tab-wrap{overflow-x:auto;border:1px solid var(--oud2);}
+.tab{width:100%;border-collapse:collapse;font-size:12.5px;min-width:820px;}
+.tab th{text-align:left;font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--cr3);padding:11px 13px;border-bottom:1px solid var(--oud2);font-weight:600;background:rgba(0,0,0,.12);white-space:nowrap;}
+.tab td{padding:11px 13px;border-bottom:1px solid var(--oud2);color:var(--cr2);letter-spacing:.3px;vertical-align:middle;}
+.tab tbody tr{cursor:pointer;transition:background .13s;}
+.tab tbody tr:hover{background:rgba(212,180,90,.05);}
+.tab .tnum{text-align:right;font-family:'DM Mono',monospace;}
+.t-nome{color:var(--cr);font-weight:500;}
+.t-fone{font-family:'DM Mono',monospace;font-size:11px;color:var(--cr3);}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:9px;letter-spacing:1.2px;text-transform:uppercase;padding:3px 9px;border:1px solid var(--oud2);color:var(--cr2);white-space:nowrap;line-height:1.5;}
+.pill-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.pill-ok{background:rgba(108,191,108,.12);color:#a8d8a8;border-color:rgba(108,191,108,.32);}
+.pill-er{background:rgba(192,80,74,.12);color:#e0a09c;border-color:rgba(192,80,74,.32);}
+.pill-am{background:rgba(212,180,90,.12);color:var(--ou2);border-color:var(--oud);}
+.tags-cel{display:flex;gap:5px;flex-wrap:wrap;}
+
+/* filtros */
+.filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px;}
+.sel{background:rgba(0,0,0,.2);border:1px solid var(--oud2);color:var(--cr2);padding:8px 11px;font-family:'Barlow',sans-serif;font-size:11px;letter-spacing:1px;cursor:pointer;}
+.sel:focus{outline:none;border-color:var(--ou);}
+.busca{background:rgba(0,0,0,.2);border:1px solid var(--oud2);color:var(--cr);padding:8px 12px;font-family:'Barlow',sans-serif;font-size:12px;min-width:210px;}
+.busca:focus{outline:none;border-color:var(--ou);}
+.busca::placeholder{color:var(--cr3);}
+
+/* ═════ FILA DE REPESCAGEM ═════ */
+.fila{border:1px solid var(--oud2);margin-bottom:20px;}
+.fila-head{padding:16px 20px;border-bottom:1px solid var(--oud2);background:rgba(0,0,0,.14);display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+.fila-tit{font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--ou2);}
+.fila-desc{font-size:10px;letter-spacing:.4px;color:var(--cr3);margin-top:4px;max-width:660px;}
+.fila-cont{font-family:'Cormorant Garamond',serif;font-size:26px;color:var(--ou);line-height:1;}
+.rep-item{padding:16px 20px;border-bottom:1px solid var(--oud2);display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start;}
+.rep-item:last-child{border-bottom:none;}
+.rep-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:7px;}
+.rep-nome{font-size:14px;color:var(--cr);letter-spacing:.4px;font-weight:500;}
+.rep-meta{font-size:10px;letter-spacing:.8px;color:var(--cr3);margin-bottom:10px;}
+.rep-sug{background:rgba(0,0,0,.2);border-left:2px solid var(--oud);padding:11px 14px;font-size:12.5px;line-height:1.6;color:var(--cr2);white-space:pre-wrap;}
+.rep-acoes{display:flex;flex-direction:column;gap:7px;align-items:stretch;min-width:150px;}
+@media(max-width:760px){.rep-item{grid-template-columns:1fr;}.rep-acoes{flex-direction:row;flex-wrap:wrap;}}
+
+/* ═════ AGENDA ═════ */
+.ag-dia{margin-bottom:26px;}
+.ag-dia-tit{font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--ou2);font-style:italic;margin-bottom:3px;}
+.ag-dia-sub{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--cr3);margin-bottom:14px;}
+
+/* ═════ PAINEL LATERAL (detalhe do lead) ═════ */
+.drawer-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:190;display:none;}
+.drawer-bg.open{display:block;}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:var(--v1);border-left:1px solid var(--oud);z-index:200;transform:translateX(100%);transition:transform .28s cubic-bezier(.3,.8,.3,1);overflow-y:auto;}
+.drawer.open{transform:translateX(0);}
+.dr-head{padding:22px 24px;border-bottom:1px solid var(--oud2);display:flex;align-items:flex-start;justify-content:space-between;gap:14px;position:sticky;top:0;background:var(--v1);z-index:2;}
+.dr-nome{font-family:'Cormorant Garamond',serif;font-size:24px;color:var(--ou2);font-weight:300;line-height:1.1;}
+.dr-fone{font-family:'DM Mono',monospace;font-size:11px;color:var(--cr3);margin-top:5px;}
+.dr-x{background:transparent;border:1px solid var(--oud2);color:var(--cr2);width:30px;height:30px;cursor:pointer;font-size:15px;flex-shrink:0;line-height:1;}
+.dr-x:hover{border-color:var(--ou);color:var(--ou);}
+.dr-body{padding:22px 24px 60px;}
+.campo{margin-bottom:16px;}
+.campo label{display:block;font-size:9px;letter-spacing:2.2px;text-transform:uppercase;color:var(--cr3);margin-bottom:6px;}
+.campo .inp,.campo .sel{margin-bottom:0;width:100%;}
+.campo-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.chk-grid{display:flex;flex-wrap:wrap;gap:7px;}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--cr2);border:1px solid var(--oud2);padding:6px 10px;cursor:pointer;transition:all .15s;user-select:none;}
+.chk:hover{border-color:var(--oud);}
+.chk.on{background:rgba(212,180,90,.12);border-color:var(--ou);color:var(--ou2);}
+.chk input{display:none;}
+.hist{border-top:1px solid var(--oud2);margin-top:22px;padding-top:18px;}
+.hist-it{font-size:11px;color:var(--cr3);letter-spacing:.4px;padding:7px 0;border-bottom:1px solid rgba(212,180,90,.07);}
+.hist-it b{color:var(--cr2);font-weight:500;}
+.dr-rodape{display:flex;gap:10px;margin-top:26px;flex-wrap:wrap;}
+
+/* ═════ IMPORTAR ═════ */
+.mono{font-family:'DM Mono',monospace;font-size:11.5px;line-height:1.7;}
+textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;font-size:11.5px;line-height:1.6;}
+.doc{background:rgba(0,0,0,.2);border:1px solid var(--oud2);padding:18px 20px;overflow-x:auto;}
+.doc pre{font-family:'DM Mono',monospace;font-size:11px;line-height:1.65;color:var(--cr2);white-space:pre;}
+.doc-nota{font-size:11.5px;line-height:1.7;color:var(--cr2);letter-spacing:.2px;}
+.doc-nota code{font-family:'DM Mono',monospace;font-size:11px;background:rgba(0,0,0,.3);padding:1px 5px;color:var(--ou2);}
+.doc-nota ul{margin:10px 0 0 18px;}
+.doc-nota li{margin-bottom:7px;}
+
+/* ═════ TOAST + TOOLTIP ═════ */
+#toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(120%);visibility:hidden;background:var(--v2);border:1px solid var(--ou);color:var(--cr);padding:13px 24px;font-size:12px;letter-spacing:1px;z-index:400;transition:transform .3s cubic-bezier(.2,.8,.3,1);max-width:90vw;text-align:center;}
+#toast.show{transform:translateX(-50%) translateY(0);visibility:visible;}
+#toast.erro{border-color:var(--er);}
+/* visibility (não só opacity) — senão a caixa vazia continua ocupando lugar e
+   aparece como um retângulo solto nos prints de página inteira */
+#tip{position:fixed;left:-9999px;top:-9999px;background:var(--v1);border:1px solid var(--oud);padding:8px 12px;font-size:11px;letter-spacing:.5px;color:var(--cr);pointer-events:none;z-index:500;opacity:0;visibility:hidden;transition:opacity .12s;white-space:nowrap;box-shadow:0 6px 22px rgba(0,0,0,.5);}
+#tip.show{opacity:1;visibility:visible;}
+#tip b{color:var(--ou2);font-weight:500;}
+</style>
+</head>
+<body>
+
+<div id="auth-loading">
+  <div class="load-marca">Loretto Scarpa</div>
+  <div class="load-spin"></div>
+</div>
+
+<!-- ═════════════ LOGIN ═════════════ -->
+<div id="tela-login">
+  <div class="login-box">
+    <h1>CRM</h1>
+    <div class="sub">Loretto Scarpa · WhatsApp</div>
+    <input type="email" id="li-email" class="inp" placeholder="E-mail" autocomplete="username">
+    <input type="password" id="li-senha" class="inp" placeholder="Senha" autocomplete="current-password">
+    <button class="btn btn-full" id="li-btn" onclick="entrar()">Entrar</button>
+    <div class="login-erro" id="li-erro"></div>
+  </div>
+</div>
+
+<!-- ═════════════ APP ═════════════ -->
+<div id="tela-app">
+  <header>
+    <div>
+      <div class="h-marca">Loretto Scarpa</div>
+      <div class="h-sub">CRM · WhatsApp</div>
+    </div>
+    <div class="h-dir">
+      <div class="mes-selector">
+        <button class="mes-nav" onclick="mudarMes(-1)">‹</button>
+        <div class="mes-atual" id="mes-atual">—</div>
+        <button class="mes-nav" onclick="mudarMes(1)">›</button>
+      </div>
+      <span class="h-email" id="h-email"></span>
+      <button class="btn btn-sm" onclick="sair()">Sair</button>
+    </div>
+  </header>
+
+  <div class="abas">
+    <button class="aba ativa" data-pag="painel" onclick="irPara('painel')">Painel</button>
+    <button class="aba" data-pag="leads" onclick="irPara('leads')">Leads<span class="aba-badge" id="bd-leads">0</span></button>
+    <button class="aba" data-pag="repescagem" onclick="irPara('repescagem')">Repescagem<span class="aba-badge" id="bd-rep">0</span></button>
+    <button class="aba" data-pag="agenda" onclick="irPara('agenda')">Agenda<span class="aba-badge" id="bd-ag">0</span></button>
+    <button class="aba" data-pag="importar" onclick="irPara('importar')">Importar</button>
+  </div>
+
+  <main>
+    <!-- ───────── PAINEL ───────── -->
+    <div class="pag ativa" id="pag-painel">
+      <div class="slbl">Resumo do mês <span class="slbl-tag" id="tag-periodo">—</span></div>
+      <div class="tiles" id="tiles"></div>
+
+      <div class="slbl">Volume e conversão por vendedora</div>
+      <div class="g2">
+        <div class="card">
+          <div class="card-tit">Mensagens recebidas</div>
+          <div class="card-sub">Mensagens que chegaram dos clientes no WhatsApp de cada vendedora</div>
+          <div class="bars" id="ch-msgs"></div>
+        </div>
+        <div class="card">
+          <div class="card-tit">Conversão em venda</div>
+          <div class="card-sub">Leads que fecharam pedido, sobre o total de leads que ela atendeu</div>
+          <div class="bars" id="ch-conv"></div>
+        </div>
+      </div>
+
+      <div class="slbl">De onde vieram os clientes</div>
+      <div class="card">
+        <div class="card-tit">Origem dos leads</div>
+        <div class="card-sub">Total do mês, por canal de entrada</div>
+        <div class="bars" id="ch-origem"></div>
+        <div class="leg" id="leg-origem"></div>
+      </div>
+      <div class="card">
+        <div class="card-tit">Origem por vendedora</div>
+        <div class="card-sub">Como a carteira de cada uma se divide entre os canais</div>
+        <div id="ch-origem-vend"></div>
+        <div class="leg" id="leg-origem2"></div>
+      </div>
+
+      <div class="slbl">Funil de atendimento</div>
+      <div class="card">
+        <div class="card-tit">Onde as conversas param</div>
+        <div class="card-sub">Cada etapa conta quem chegou até ali, inclusive quem já passou adiante. À direita, quanto se perde na passagem.</div>
+        <div class="funil" id="ch-funil"></div>
+      </div>
+
+      <div class="slbl">Conversão por origem</div>
+      <div class="card">
+        <div class="card-tit">Qual canal traz cliente que compra</div>
+        <div class="card-sub">Percentual de leads de cada canal que viraram venda</div>
+        <div class="bars" id="ch-conv-origem"></div>
+      </div>
+    </div>
+
+    <!-- ───────── LEADS ───────── -->
+    <div class="pag" id="pag-leads">
+      <div class="slbl">Leads <span class="slbl-tag" id="tag-leads">0</span></div>
+      <div class="filtros">
+        <input type="text" class="busca" id="f-busca" placeholder="Buscar nome ou telefone..." oninput="renderLeads()">
+        <select class="sel" id="f-vend" onchange="renderLeads()"></select>
+        <select class="sel" id="f-origem" onchange="renderLeads()"></select>
+        <select class="sel" id="f-etapa" onchange="renderLeads()"></select>
+        <select class="sel" id="f-periodo" onchange="renderLeads()">
+          <option value="mes">Mês selecionado</option>
+          <option value="tudo">Todos os leads</option>
+        </select>
+        <button class="btn btn-sm" onclick="novoLead()">+ Novo lead</button>
+        <button class="btn btn-sm" onclick="exportarCSV()">Exportar CSV</button>
+      </div>
+      <div class="tab-wrap">
+        <table class="tab">
+          <thead><tr>
+            <th>Cliente</th><th>Vendedora</th><th>Origem</th><th>Etapa</th>
+            <th>Interesse</th><th class="tnum">Msgs</th><th>Última</th><th>Situação</th>
+          </tr></thead>
+          <tbody id="tb-leads"></tbody>
+        </table>
+      </div>
+      <div id="leads-vazio"></div>
+    </div>
+
+    <!-- ───────── REPESCAGEM ───────── -->
+    <div class="pag" id="pag-repescagem">
+      <div class="slbl">Filas de repescagem
+        <span class="slbl-tag">teto de 3 por cliente · 1 por dia</span>
+      </div>
+      <div class="filtros">
+        <select class="sel" id="f-rep-vend" onchange="renderRepescagem()"></select>
+        <button class="btn btn-sm" onclick="copiarFilaClaude()">Copiar fila para o Claude</button>
+      </div>
+      <div id="filas"></div>
+    </div>
+
+    <!-- ───────── AGENDA ───────── -->
+    <div class="pag" id="pag-agenda">
+      <div class="slbl">Quem combinou de vir <span class="slbl-tag" id="tag-ag">—</span></div>
+      <div class="filtros">
+        <select class="sel" id="f-ag-vend" onchange="renderAgenda()"></select>
+      </div>
+      <div id="agenda"></div>
+    </div>
+
+    <!-- ───────── IMPORTAR ───────── -->
+    <div class="pag" id="pag-importar">
+      <div class="slbl">Importar varredura do WhatsApp</div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        Cole aqui o JSON gerado pelo Claude depois de varrer o WhatsApp Web de uma vendedora.
+        A gravação é <b>incremental</b>: campos que não vierem no JSON não apagam o que já está salvo, e
+        o telefone é a chave — o mesmo cliente nunca duplica.
+      </div>
+      <textarea class="inp" id="imp-json" placeholder='{"vendedora":"Jhennifer","leads":[ ... ]}'></textarea>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn" onclick="importarJSON()">Importar</button>
+        <button class="btn btn-sm" onclick="document.getElementById('imp-json').value=EXEMPLO_JSON">Ver exemplo</button>
+        <button class="btn btn-sm" onclick="exportarJSON()">Exportar tudo (JSON)</button>
+      </div>
+      <div id="imp-res" style="margin-top:16px;"></div>
+
+      <div class="slbl">Contrato de dados</div>
+      <div class="doc"><pre id="doc-schema"></pre></div>
+    </div>
+  </main>
+</div>
+
+<!-- drawer do lead -->
+<div class="drawer-bg" id="drawer-bg" onclick="fecharDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="dr-head">
+    <div>
+      <div class="dr-nome" id="dr-nome">—</div>
+      <div class="dr-fone" id="dr-fone">—</div>
+    </div>
+    <button class="dr-x" onclick="fecharDrawer()">×</button>
+  </div>
+  <div class="dr-body" id="dr-body"></div>
+</div>
+
+<div id="toast"></div>
+<div id="tip"></div>
+
+<!-- Firebase COMPAT 10.12.0 — MESMA versão da Central de Pagamentos.
+     Usar o SDK modular aqui derrubava a sessão da Central. Não trocar. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyCogQoTSULCdC1JhTb0IUilWAIA1itBJ8U",
+  authDomain: "loretto-scarpa-l-icr.firebaseapp.com",
+  projectId: "loretto-scarpa-l-icr",
+  storageBucket: "loretto-scarpa-l-icr.firebasestorage.app",
+  messagingSenderId: "428188657366",
+  appId: "1:428188657366:web:d88f4ec3a6392d5983cb77"
+};
+if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+</script>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════
+   CRM WHATSAPP — LORETTO SCARPA
+   Coleções no Firestore (projeto loretto-scarpa-l-icr):
+     crm_leads/{telefone}   — um doc por cliente. Telefone é a chave.
+     crm_msgs/{YYYY-MM-DD}  — volume diário de mensagens por vendedora.
+   A Central de Pagamentos usa outras coleções; nada aqui toca nelas.
+   ══════════════════════════════════════════════════════════════════════ */
+
+const VENDEDORAS = ['Jhennifer', 'Ialey', 'Michelly', 'Natália'];
+
+const ORIGENS = [
+  {id:'anuncio',      nome:'Anúncio',          cor:'var(--o1)', desc:'Meta Ads — entrou pelo banner do anúncio'},
+  {id:'instagram',    nome:'Instagram',        cor:'var(--o2)', desc:'Veio do perfil, direct ou stories'},
+  {id:'organico',     nome:'Orgânico',         cor:'var(--o3)', desc:'Achou a loja sozinho, Google, passou na frente'},
+  {id:'indicacao',    nome:'Indicação',        cor:'var(--o4)', desc:'Indicado por outro cliente'},
+  {id:'desconhecida', nome:'Não identificada', cor:'var(--o5)', desc:'Origem não deu para identificar na conversa'}
+];
+const ORIGEM_NOME = Object.fromEntries(ORIGENS.map(o=>[o.id,o.nome]));
+const ORIGEM_COR  = Object.fromEntries(ORIGENS.map(o=>[o.id,o.cor]));
+
+/* Funil. `rank` é a ordem de avanço: quem está em 'vendido' já passou por todas
+   as anteriores, então conta em todas elas na leitura do funil.
+   'perdido' fica FORA do funil (rank -1) — é saída, não etapa. */
+const ETAPAS = [
+  {id:'novo',        nome:'Novo',          rank:0, desc:'Mensagem chegou, ainda sem resposta'},
+  {id:'atendido',    nome:'Atendido',      rank:1, desc:'Fotos ou catálogo enviados'},
+  {id:'preco',       nome:'Preço enviado', rank:2, desc:'Valor passado por escrito'},
+  {id:'numeracao',   nome:'Numeração',     rank:3, desc:'Cor e numeração definidas'},
+  {id:'localizacao', nome:'Localização',   rank:4, desc:'Endereço enviado, esperando aparecer'},
+  {id:'agendado',    nome:'Agendado',      rank:5, desc:'Combinou dia para vir à loja'},
+  {id:'compareceu',  nome:'Compareceu',    rank:6, desc:'Veio à loja'},
+  {id:'vendido',     nome:'Vendido',       rank:7, desc:'Fechou o pedido'},
+  {id:'perdido',     nome:'Perdido',       rank:-1,desc:'Não vai comprar'}
+];
+const ETAPA_NOME = Object.fromEntries(ETAPAS.map(e=>[e.id,e.nome]));
+const ETAPA_RANK = Object.fromEntries(ETAPAS.map(e=>[e.id,e.rank]));
+const FUNIL = ETAPAS.filter(e=>e.rank>=0).sort((a,b)=>a.rank-b.rank);
+
+/* Situações marcadas pelo Claude na leitura da conversa.
+   `bloqueia:true` tira o cliente de qualquer fila de repescagem — são as
+   regras que o agente de atendimento não quebra. */
+const TAGS = [
+  {id:'preco_so_audio', nome:'Preço só em áudio', bloqueia:false, desc:'Perguntou o valor por escrito e a loja respondeu em áudio'},
+  {id:'sem_resposta',   nome:'Sem resposta',      bloqueia:false, desc:'Loja escreveu e o cliente sumiu'},
+  {id:'audio_sem_retorno',nome:'Áudio sem retorno',bloqueia:true, desc:'Cliente mandou áudio e a loja não respondeu — fila humana'},
+  {id:'adiou',          nome:'Adiou',             bloqueia:false, desc:'Disse que volta depois — respeitar o prazo'},
+  {id:'pediu_desconto', nome:'Pediu desconto',    bloqueia:true,  desc:'Objeção de preço — só humano trata'},
+  {id:'sem_interesse',  nome:'Sem interesse',     bloqueia:true,  desc:'Disse que não quer ou "vou pensar" duas vezes'},
+  {id:'ja_comprou',     nome:'Já comprou',        bloqueia:true,  desc:'Tem a mensagem de pós-venda na conversa'},
+  {id:'nao_cliente',    nome:'Não é cliente',     bloqueia:true,  desc:'Contato pessoal, fornecedor, entregador'},
+  {id:'fora_62',        nome:'Fora do DDD 62',    bloqueia:false, desc:'Entrega grátis não vale — só oferecer envio'}
+];
+const TAG_NOME = Object.fromEntries(TAGS.map(t=>[t.id,t.nome]));
+const TAGS_BLOQUEIO = TAGS.filter(t=>t.bloqueia).map(t=>t.id);
+
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const DIAS_SEM = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+
+const MAX_REPESCAGENS = 3;   // teto por cliente, conforme o playbook de atendimento
+const DIAS_ESFRIOU     = 2;  // dias de silêncio antes de entrar na fila
+
+/* ─── Estado ─── */
+let LEADS = {};        // telefone -> lead
+let MSGS_DIA = {};     // 'YYYY-MM-DD' -> { Vendedora: {recebidas, enviadas} }
+let DATA_ATUAL = new Date();
+let PAG_ATUAL = 'painel';
+let LEAD_ABERTO = null;
+let USUARIO = '';
+
+/* ══════════════════ UTILIDADES ══════════════════ */
+const $  = id => document.getElementById(id);
+const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hoje = () => new Date().toISOString().slice(0,10);
+
+function toast(msg, erro){
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = erro ? 'erro show' : 'show';
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>{ t.className=''; }, 4200);
+}
+
+/* Telefone é a chave primária. Normaliza para só dígitos com DDI 55.
+   Aceita "(62) 99123-4567", "+55 62 99123 4567", "6299123456"... */
+function normFone(raw){
+  let d = String(raw??'').replace(/\D/g,'');
+  if(!d) return '';
+  if(d.startsWith('55') && d.length >= 12) return d;
+  if(d.length === 10 || d.length === 11) return '55' + d;
+  return d;
+}
+function foneBonito(f){
+  const d = String(f||'');
+  const s = d.startsWith('55') ? d.slice(2) : d;
+  if(s.length === 11) return `(${s.slice(0,2)}) ${s.slice(2,7)}-${s.slice(7)}`;
+  if(s.length === 10) return `(${s.slice(0,2)}) ${s.slice(2,6)}-${s.slice(6)}`;
+  return d;
+}
+const dddDe = f => { const d=String(f||''); return d.startsWith('55') ? d.slice(2,4) : d.slice(0,2); };
+
+function diasDesde(iso){
+  if(!iso) return 9999;
+  const d = new Date(String(iso).slice(0,10) + 'T12:00:00');
+  if(isNaN(d)) return 9999;
+  return Math.floor((new Date(hoje()+'T12:00:00') - d) / 86400000);
+}
+function dataBonita(iso){
+  if(!iso) return '—';
+  const d = new Date(String(iso).slice(0,10) + 'T12:00:00');
+  if(isNaN(d)) return '—';
+  return d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
+}
+function haQuantoTempo(iso){
+  const n = diasDesde(iso);
+  if(n >= 9999) return '—';
+  if(n === 0) return 'hoje';
+  if(n === 1) return 'ontem';
+  if(n < 30) return `há ${n} dias`;
+  if(n < 60) return 'há 1 mês';
+  return `há ${Math.floor(n/30)} meses`;
+}
+const brl = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+const pct = (a,b) => b > 0 ? Math.round(a/b*100) : 0;
+
+/* Saudação por horário de Brasília — igual à do agente de atendimento */
+function saudacao(){
+  const h = Number(new Date().toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo', hour:'2-digit', hour12:false}));
+  if(h >= 5  && h < 12) return 'Bom dia';
+  if(h >= 12 && h < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+/* ══════════════════ MODELO DO LEAD ══════════════════ */
+function leadVazio(fone){
+  return {
+    telefone: fone, nome: '', vendedora: VENDEDORAS[0],
+    origem: 'desconhecida', campanha: '',
+    modelo: '', cor: '', numeracao: '',
+    etapa: 'novo', tags: [],
+    primeiroContato: hoje(), ultimaCliente: '', ultimaLoja: '',
+    msgsCliente: 0, msgsLoja: 0,
+    agendadoPara: '', agendadoHora: '',
+    compareceu: null, valorVenda: 0, dataVenda: '',
+    repescagens: [], bloquearRepescagem: false, motivoBloqueio: '',
+    obs: '', criadoEm: new Date().toISOString(), atualizadoEm: '', atualizadoPor: ''
+  };
+}
+
+/* Merge incremental: campo ausente no `novo` NUNCA apaga o que já existe.
+   É isso que deixa o Claude mandar só o que ele conseguiu ler da conversa. */
+function mesclarLead(atual, novo){
+  const r = {...atual};
+  for(const [k, v] of Object.entries(novo)){
+    if(v === undefined || v === null) continue;
+    if(typeof v === 'string' && v.trim() === '') continue;
+    if(Array.isArray(v) && v.length === 0) continue;
+    if(k === 'tags'){ r.tags = [...new Set([...(atual.tags||[]), ...v])]; continue; }
+    if(k === 'repescagens'){
+      // dedup por data — reimportar a mesma varredura não infla o contador
+      const vistas = new Set((atual.repescagens||[]).map(x=>x.data));
+      r.repescagens = [...(atual.repescagens||[]), ...v.filter(x=>x && !vistas.has(x.data))];
+      continue;
+    }
+    if(k === 'etapa'){
+      // nunca faz o lead ANDAR PARA TRÁS no funil por uma leitura incompleta,
+      // mas 'perdido' sempre vale (é uma decisão, não uma dedução)
+      if(v === 'perdido' || (ETAPA_RANK[v] ?? -1) >= (ETAPA_RANK[atual.etapa] ?? -1)) r.etapa = v;
+      continue;
+    }
+    if((k === 'msgsCliente' || k === 'msgsLoja') && typeof v === 'number'){
+      r[k] = Math.max(atual[k]||0, v); continue;   // contador é acumulado, não substituído
+    }
+    r[k] = v;
+  }
+  r.tags = [...new Set(r.tags||[])];
+  if(r.bloquearRepescagem !== true) r.bloquearRepescagem = (r.tags||[]).some(t=>TAGS_BLOQUEIO.includes(t));
+  // Marca d'água do funil: a etapa mais avançada que este lead já alcançou.
+  // Sem ela, um lead marcado 'perdido' sumiria de todas as etapas por onde
+  // passou e o funil mostraria menos gente no topo do que realmente entrou.
+  r.etapaMaxRank = Math.max(atual.etapaMaxRank ?? -1, ETAPA_RANK[r.etapa] ?? -1);
+  return r;
+}
+
+/* Até onde este lead chegou — usado pelo funil e pelas filas. */
+const rankAlcancado = l => Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK[l.etapa] ?? -1);
+
+const tentativas   = l => (l.repescagens||[]).length;
+const ultimaRepesca = l => (l.repescagens||[]).map(r=>r.data).sort().slice(-1)[0] || '';
+
+/* Pode repescar? Espelha as regras do playbook:
+   teto de 3, uma por dia, e as situações que bloqueiam. */
+function podeRepescar(l){
+  if(l.bloquearRepescagem) return {ok:false, motivo: l.motivoBloqueio || 'Bloqueado manualmente'};
+  const tagBloq = (l.tags||[]).find(t=>TAGS_BLOQUEIO.includes(t));
+  if(tagBloq) return {ok:false, motivo: TAG_NOME[tagBloq]};
+  if(l.etapa === 'vendido')  return {ok:false, motivo:'Já comprou'};
+  if(l.etapa === 'perdido')  return {ok:false, motivo:'Marcado como perdido'};
+  if(tentativas(l) >= MAX_REPESCAGENS) return {ok:false, motivo:`Já levou ${MAX_REPESCAGENS} repescagens`};
+  if(ultimaRepesca(l) === hoje())      return {ok:false, motivo:'Já foi repescado hoje'};
+  if((l.tags||[]).includes('adiou') && diasDesde(l.ultimaCliente) < 7)
+    return {ok:false, motivo:'Pediu para adiar — respeitar o prazo'};
+  return {ok:true};
+}
+</script>
+
+<script>
+/* ══════════════════ FIRESTORE ══════════════════ */
+
+async function carregarDados(){
+  const [snapLeads, snapMsgs] = await Promise.all([
+    db.collection('crm_leads').get(),
+    db.collection('crm_msgs').get()
+  ]);
+  LEADS = {};
+  snapLeads.forEach(d => { LEADS[d.id] = {...leadVazio(d.id), ...d.data(), telefone: d.id}; });
+  MSGS_DIA = {};
+  snapMsgs.forEach(d => { MSGS_DIA[d.id] = d.data() || {}; });
+}
+
+async function salvarLead(lead){
+  lead.atualizadoEm  = new Date().toISOString();
+  lead.atualizadoPor = USUARIO || 'painel';
+  LEADS[lead.telefone] = lead;
+  await db.collection('crm_leads').doc(lead.telefone).set(lead, {merge:true});
+}
+
+/* ══════════════════ PERÍODO ══════════════════ */
+const mesPrefixo = () => `${DATA_ATUAL.getFullYear()}-${String(DATA_ATUAL.getMonth()+1).padStart(2,'0')}`;
+
+function mudarMes(n){
+  DATA_ATUAL = new Date(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth() + n, 1);
+  render();
+}
+const todosLeads  = () => Object.values(LEADS);
+const leadsDoMes  = () => todosLeads().filter(l => String(l.primeiroContato||'').startsWith(mesPrefixo()));
+
+/* ══════════════════ MÉTRICAS ══════════════════ */
+
+/* Volume de mensagens. Fonte primária é crm_msgs (contagem por dia, gravada pelo
+   Claude na varredura). Sem varredura no mês, cai para os contadores do próprio
+   lead — que só cobrem quem entrou no mês. A UI diz qual fonte está valendo. */
+function msgsDoMes(){
+  const pre = mesPrefixo();
+  const out = Object.fromEntries(VENDEDORAS.map(v => [v, {recebidas:0, enviadas:0}]));
+  let temDiario = false;
+  for(const [dia, val] of Object.entries(MSGS_DIA)){
+    if(!dia.startsWith(pre)) continue;
+    for(const [v, o] of Object.entries(val || {})){
+      if(!out[v] || !o || typeof o !== 'object') continue;
+      temDiario = true;
+      out[v].recebidas += Number(o.recebidas || 0);
+      out[v].enviadas  += Number(o.enviadas  || 0);
+    }
+  }
+  if(!temDiario){
+    for(const l of leadsDoMes()){
+      if(!out[l.vendedora]) continue;
+      out[l.vendedora].recebidas += Number(l.msgsCliente || 0);
+      out[l.vendedora].enviadas  += Number(l.msgsLoja    || 0);
+    }
+  }
+  return {dados: out, fonte: temDiario ? 'diario' : 'leads'};
+}
+
+function metricas(){
+  const leads = leadsDoMes();
+  const vendidos = leads.filter(l => l.etapa === 'vendido');
+  const faturado = vendidos.reduce((s,l) => s + Number(l.valorVenda||0), 0);
+  const {dados: msgs, fonte} = msgsDoMes();
+  const recebidas = Object.values(msgs).reduce((s,m) => s + m.recebidas, 0);
+
+  const porVend = VENDEDORAS.map(v => {
+    const meus = leads.filter(l => l.vendedora === v);
+    const vend = meus.filter(l => l.etapa === 'vendido');
+    const comp = meus.filter(l => rankAlcancado(l) >= ETAPA_RANK.compareceu);
+    return {
+      vendedora: v, leads: meus.length, vendas: vend.length,
+      conversao: pct(vend.length, meus.length),
+      compareceram: comp.length,
+      faturado: vend.reduce((s,l)=>s+Number(l.valorVenda||0), 0),
+      recebidas: msgs[v].recebidas, enviadas: msgs[v].enviadas
+    };
+  });
+
+  const porOrigem = ORIGENS.map(o => {
+    const meus = leads.filter(l => (l.origem||'desconhecida') === o.id);
+    const vend = meus.filter(l => l.etapa === 'vendido');
+    return {...o, leads: meus.length, vendas: vend.length, conversao: pct(vend.length, meus.length)};
+  });
+
+  // Funil: cada etapa conta quem CHEGOU até ali, inclusive quem já passou adiante
+  // ou já foi dado como perdido depois.
+  const funil = FUNIL.map(e => ({...e, total: leads.filter(l => rankAlcancado(l) >= e.rank).length}));
+
+  return {
+    leads, total: leads.length, vendas: vendidos.length,
+    conversao: pct(vendidos.length, leads.length),
+    faturado, ticket: vendidos.length ? faturado/vendidos.length : 0,
+    recebidas, fonteMsgs: fonte, porVend, porOrigem, funil
+  };
+}
+
+/* ══════════════════ GRÁFICOS ══════════════════ */
+
+/* Barras horizontais, uma série. Sem legenda — o título nomeia a série e cada
+   barra traz o rótulo direto ao lado. */
+function barras(el, itens, opts={}){
+  const max = Math.max(1, ...itens.map(i => i.valor));
+  const cor = opts.cor || 'var(--ou3)';
+  el.innerHTML = itens.map(i => {
+    const w = Math.round(i.valor / max * 100);
+    return `<div class="bar-row" data-tip="${esc(i.tip || `${i.nome}: ${i.rotulo ?? i.valor}`)}">
+      <div class="bar-nome">${esc(i.nome)}</div>
+      <div class="bar-trk"><div class="bar-fill" style="width:${w}%;background:${i.cor || cor};"></div></div>
+      <div class="bar-val">${i.rotulo ?? i.valor}</div>
+    </div>`;
+  }).join('') || '<div class="vazio">Sem dados no período</div>';
+}
+
+function legenda(el, itens){
+  el.innerHTML = itens.map(i =>
+    `<div class="leg-it"><span class="leg-sw" style="background:${i.cor}"></span>${esc(i.nome)}</div>`
+  ).join('');
+}
+
+function renderPainel(){
+  const m = metricas();
+  $('tag-periodo').textContent = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
+
+  const fonteHint = m.fonteMsgs === 'diario'
+    ? 'contagem diária da varredura'
+    : 'somado dos leads do mês';
+
+  $('tiles').innerHTML = `
+    <div class="tile"><div class="lbl">Leads no mês</div><div class="val">${m.total}</div>
+      <div class="hint">clientes novos que escreveram</div></div>
+    <div class="tile"><div class="lbl">Mensagens recebidas</div><div class="val">${m.recebidas}</div>
+      <div class="hint">${fonteHint}</div></div>
+    <div class="tile"><div class="lbl">Vendas fechadas</div><div class="val verde">${m.vendas}</div>
+      <div class="hint">${m.conversao}% dos leads do mês</div></div>
+    <div class="tile"><div class="lbl">Faturado</div><div class="val">${brl(m.faturado).replace('R$ ','')}</div>
+      <div class="hint">ticket médio ${brl(m.ticket)}</div></div>
+    <div class="tile"><div class="lbl">Na fila de repescagem</div><div class="val">${contarRepescagem()}</div>
+      <div class="hint">prontos para chamar hoje</div></div>`;
+
+  barras($('ch-msgs'), m.porVend.map(v => ({
+    nome: v.vendedora, valor: v.recebidas, rotulo: v.recebidas,
+    tip: `${v.vendedora}: ${v.recebidas} recebidas · ${v.enviadas} enviadas`
+  })));
+
+  barras($('ch-conv'), m.porVend.map(v => ({
+    nome: v.vendedora, valor: v.conversao,
+    rotulo: `${v.conversao}% <small>(${v.vendas}/${v.leads})</small>`,
+    tip: `${v.vendedora}: ${v.vendas} vendas em ${v.leads} leads · ${v.compareceram} vieram à loja`
+  })));
+
+  const orig = m.porOrigem.filter(o => o.leads > 0).sort((a,b) => b.leads - a.leads);
+  barras($('ch-origem'), orig.map(o => ({
+    nome: o.nome, valor: o.leads, cor: o.cor,
+    rotulo: `${o.leads} <small>(${pct(o.leads, m.total)}%)</small>`,
+    tip: `${o.nome}: ${o.leads} leads · ${o.vendas} viraram venda`
+  })));
+  // Ordem fixa, independente de como as barras foram ordenadas
+  legenda($('leg-origem'), ORIGENS.filter(o => orig.some(x => x.id === o.id)));
+
+  // Empilhada por vendedora — precisa de legenda: são 5 identidades no mesmo eixo
+  $('ch-origem-vend').innerHTML = VENDEDORAS.map(v => {
+    const meus = m.leads.filter(l => l.vendedora === v);
+    if(!meus.length) return `<div class="stack-row"><div class="bar-nome">${esc(v)}</div>
+      <div class="stack"></div><div class="bar-val"><small>0</small></div></div>`;
+    const segs = ORIGENS.map(o => ({o, n: meus.filter(l => (l.origem||'desconhecida') === o.id).length}))
+      .filter(x => x.n > 0);
+    return `<div class="stack-row">
+      <div class="bar-nome">${esc(v)}</div>
+      <div class="stack">${segs.map(x =>
+        `<div class="stack-seg" style="width:${x.n/meus.length*100}%;background:${x.o.cor};"
+          data-tip="${esc(v)} · ${esc(x.o.nome)}: ${x.n} de ${meus.length} (${pct(x.n,meus.length)}%)"></div>`
+      ).join('')}</div>
+      <div class="bar-val">${meus.length}</div>
+    </div>`;
+  }).join('');
+  legenda($('leg-origem2'), ORIGENS);
+
+  // Funil
+  const topo = Math.max(1, m.funil[0].total);
+  $('ch-funil').innerHTML = m.funil.map((e, i) => {
+    const ant  = i > 0 ? m.funil[i-1].total : null;
+    const perda = ant !== null && ant > 0 ? Math.round((ant - e.total)/ant*100) : null;
+    return `<div class="fun-row">
+      <div class="fun-nome">${esc(e.nome)}<small>${esc(e.desc)}</small></div>
+      <div class="fun-bar" data-tip="${esc(e.nome)}: ${e.total} de ${topo} (${pct(e.total, topo)}% do topo)">
+        <div class="fun-fill" style="width:${e.total/topo*100}%"></div>
+        <div class="fun-txt">${e.total}</div>
+        ${perda !== null && perda > 0 ? `<div class="fun-drop">−${perda}%</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const co = m.porOrigem.filter(o => o.leads > 0).sort((a,b) => b.conversao - a.conversao);
+  barras($('ch-conv-origem'), co.map(o => ({
+    nome: o.nome, valor: o.conversao, cor: o.cor,
+    rotulo: `${o.conversao}% <small>(${o.vendas}/${o.leads})</small>`,
+    tip: `${o.nome}: ${o.vendas} vendas em ${o.leads} leads`
+  })));
+}
+</script>
+
+<script>
+/* ══════════════════ LEADS ══════════════════ */
+
+function preencherFiltros(){
+  const opts = (arr, todos) => `<option value="">${todos}</option>` +
+    arr.map(x => `<option value="${esc(x.id ?? x)}">${esc(x.nome ?? x)}</option>`).join('');
+  $('f-vend').innerHTML     = opts(VENDEDORAS, 'Todas as vendedoras');
+  $('f-origem').innerHTML   = opts(ORIGENS, 'Todas as origens');
+  $('f-etapa').innerHTML    = opts(ETAPAS, 'Todas as etapas');
+  $('f-rep-vend').innerHTML = opts(VENDEDORAS, 'Todas as vendedoras');
+  $('f-ag-vend').innerHTML  = opts(VENDEDORAS, 'Todas as vendedoras');
+}
+
+function leadsFiltrados(){
+  const q  = ($('f-busca').value || '').toLowerCase().trim();
+  const fv = $('f-vend').value, fo = $('f-origem').value, fe = $('f-etapa').value;
+  const base = $('f-periodo').value === 'tudo' ? todosLeads() : leadsDoMes();
+  return base.filter(l => {
+    if(fv && l.vendedora !== fv) return false;
+    if(fo && (l.origem||'desconhecida') !== fo) return false;
+    if(fe && l.etapa !== fe) return false;
+    if(q && !(`${l.nome||''} ${l.telefone} ${foneBonito(l.telefone)}`.toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a,b) => String(b.ultimaCliente||b.primeiroContato||'').localeCompare(String(a.ultimaCliente||a.primeiroContato||'')));
+}
+
+function pillEtapa(l){
+  const cls = l.etapa === 'vendido' ? 'pill-ok' : l.etapa === 'perdido' ? 'pill-er'
+            : ['localizacao','agendado','compareceu'].includes(l.etapa) ? 'pill-am' : '';
+  return `<span class="pill ${cls}">${esc(ETAPA_NOME[l.etapa] || l.etapa)}</span>`;
+}
+
+function renderLeads(){
+  const ls = leadsFiltrados();
+  $('tag-leads').textContent = `${ls.length} ${ls.length === 1 ? 'lead' : 'leads'}`;
+  $('bd-leads').textContent  = leadsDoMes().length;
+  $('tb-leads').innerHTML = ls.map(l => `
+    <tr onclick="abrirLead('${esc(l.telefone)}')">
+      <td><div class="t-nome">${esc(l.nome || 'Sem nome')}</div><div class="t-fone">${foneBonito(l.telefone)}</div></td>
+      <td>${esc(l.vendedora || '—')}</td>
+      <td><span class="pill"><span class="pill-dot" style="background:${ORIGEM_COR[l.origem]||'var(--o5)'}"></span>${esc(ORIGEM_NOME[l.origem] || 'Não identificada')}</span></td>
+      <td>${pillEtapa(l)}</td>
+      <td>${esc([l.modelo, l.cor, l.numeracao].filter(Boolean).join(' · ') || '—')}</td>
+      <td class="tnum">${Number(l.msgsCliente||0)}</td>
+      <td>${haQuantoTempo(l.ultimaCliente || l.ultimaLoja || l.primeiroContato)}</td>
+      <td><div class="tags-cel">${(l.tags||[]).slice(0,3).map(t=>`<span class="pill">${esc(TAG_NOME[t]||t)}</span>`).join('')}</div></td>
+    </tr>`).join('');
+  $('leads-vazio').innerHTML = ls.length ? '' :
+    `<div class="vazio" style="margin-top:18px;"><strong>Nenhum lead aqui</strong>
+      Ajuste os filtros ou importe uma varredura do WhatsApp na aba <b>Importar</b>.</div>`;
+}
+
+/* ══════════════════ DRAWER — DETALHE DO LEAD ══════════════════ */
+
+function abrirLead(fone){
+  const l = LEADS[fone];
+  if(!l) return;
+  LEAD_ABERTO = fone;
+  $('dr-nome').textContent = l.nome || 'Sem nome';
+  $('dr-fone').textContent = foneBonito(l.telefone);
+  const rp = podeRepescar(l);
+
+  $('dr-body').innerHTML = `
+    <div class="campo"><label>Nome</label><input class="inp" id="d-nome" value="${esc(l.nome||'')}"></div>
+    <div class="campo-2">
+      <div class="campo"><label>Vendedora</label><select class="sel" id="d-vend">
+        ${VENDEDORAS.map(v=>`<option ${v===l.vendedora?'selected':''}>${esc(v)}</option>`).join('')}</select></div>
+      <div class="campo"><label>Origem</label><select class="sel" id="d-origem">
+        ${ORIGENS.map(o=>`<option value="${o.id}" ${o.id===(l.origem||'desconhecida')?'selected':''}>${esc(o.nome)}</option>`).join('')}</select></div>
+    </div>
+    <div class="campo"><label>Etapa</label><select class="sel" id="d-etapa">
+      ${ETAPAS.map(e=>`<option value="${e.id}" ${e.id===l.etapa?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
+    <div class="campo-2">
+      <div class="campo"><label>Modelo</label><input class="inp" id="d-modelo" value="${esc(l.modelo||'')}"></div>
+      <div class="campo"><label>Cor</label><input class="inp" id="d-cor" value="${esc(l.cor||'')}"></div>
+    </div>
+    <div class="campo-2">
+      <div class="campo"><label>Numeração</label><input class="inp" id="d-num" value="${esc(l.numeracao||'')}"></div>
+      <div class="campo"><label>Valor da venda</label><input class="inp" id="d-valor" type="number" step="0.01" value="${Number(l.valorVenda||0)||''}"></div>
+    </div>
+    <div class="campo-2">
+      <div class="campo"><label>Combinou de vir em</label><input class="inp" id="d-agenda" type="date" value="${esc(l.agendadoPara||'')}"></div>
+      <div class="campo"><label>Hora</label><input class="inp" id="d-hora" value="${esc(l.agendadoHora||'')}" placeholder="15:00"></div>
+    </div>
+    <div class="campo"><label>Veio à loja?</label><select class="sel" id="d-comp">
+      <option value="">Ainda não se sabe</option>
+      <option value="sim" ${l.compareceu===true?'selected':''}>Sim, apareceu</option>
+      <option value="nao" ${l.compareceu===false?'selected':''}>Não apareceu</option>
+    </select></div>
+    <div class="campo"><label>Situação da conversa</label><div class="chk-grid">
+      ${TAGS.map(t=>`<label class="chk ${(l.tags||[]).includes(t.id)?'on':''}" title="${esc(t.desc)}"
+        onclick="this.classList.toggle('on')"><input type="checkbox" data-tag="${t.id}" ${(l.tags||[]).includes(t.id)?'checked':''}>${esc(t.nome)}</label>`).join('')}
+    </div></div>
+    <div class="campo"><label>Observações</label><textarea class="inp" id="d-obs" style="min-height:80px;">${esc(l.obs||'')}</textarea></div>
+
+    <div class="hist">
+      <label style="display:block;font-size:9px;letter-spacing:2.2px;text-transform:uppercase;color:var(--cr3);margin-bottom:10px;">
+        Repescagens · ${tentativas(l)} de ${MAX_REPESCAGENS}</label>
+      ${(l.repescagens||[]).length
+        ? l.repescagens.map(r=>`<div class="hist-it"><b>${dataBonita(r.data)}</b> — ${esc(r.texto || r.por || 'registrada')}</div>`).join('')
+        : '<div class="hist-it">Nenhuma ainda.</div>'}
+      <div class="hist-it" style="border:none;padding-top:10px;">
+        ${rp.ok ? '<span style="color:#a8d8a8;">Liberado para repescar</span>'
+                : `<span style="color:#e0a09c;">Não repescar — ${esc(rp.motivo)}</span>`}
+      </div>
+      <div class="hist-it" style="border:none;">Primeiro contato: <b>${dataBonita(l.primeiroContato)}</b> ·
+        Última do cliente: <b>${haQuantoTempo(l.ultimaCliente)}</b> ·
+        ${Number(l.msgsCliente||0)} recebidas / ${Number(l.msgsLoja||0)} enviadas</div>
+    </div>
+
+    <div class="dr-rodape">
+      <button class="btn btn-ok" onclick="salvarDrawer()">Salvar</button>
+      <a class="btn" href="https://wa.me/${esc(l.telefone)}" target="_blank" rel="noopener">Abrir no WhatsApp</a>
+      <button class="btn btn-sm" onclick="registrarRepescagem('${esc(l.telefone)}')">Registrar repescagem</button>
+      <button class="btn btn-er btn-sm" onclick="apagarLead('${esc(l.telefone)}')">Apagar</button>
+    </div>`;
+
+  $('drawer').classList.add('open');
+  $('drawer-bg').classList.add('open');
+}
+
+function fecharDrawer(){
+  $('drawer').classList.remove('open');
+  $('drawer-bg').classList.remove('open');
+  LEAD_ABERTO = null;
+}
+
+async function salvarDrawer(){
+  const l = LEADS[LEAD_ABERTO];
+  if(!l) return;
+  const compVal = $('d-comp').value;
+  const tags = [...document.querySelectorAll('#dr-body .chk')]
+    .filter(c => c.classList.contains('on'))
+    .map(c => c.querySelector('input').dataset.tag);
+
+  const novo = {
+    ...l,
+    nome: $('d-nome').value.trim(),
+    vendedora: $('d-vend').value,
+    origem: $('d-origem').value,
+    etapa: $('d-etapa').value,
+    modelo: $('d-modelo').value.trim(),
+    cor: $('d-cor').value.trim(),
+    numeracao: $('d-num').value.trim(),
+    valorVenda: Number($('d-valor').value || 0),
+    agendadoPara: $('d-agenda').value,
+    agendadoHora: $('d-hora').value.trim(),
+    compareceu: compVal === 'sim' ? true : compVal === 'nao' ? false : null,
+    obs: $('d-obs').value.trim(),
+    tags
+  };
+  // Edição manual é decisão explícita: substitui as tags, não soma, e pode
+  // puxar a etapa para trás. Por isso não passa pelo mesclarLead.
+  novo.bloquearRepescagem = tags.some(t => TAGS_BLOQUEIO.includes(t));
+  novo.motivoBloqueio = novo.bloquearRepescagem ? TAG_NOME[tags.find(t=>TAGS_BLOQUEIO.includes(t))] : '';
+  novo.etapaMaxRank = Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK[novo.etapa] ?? -1);
+  if(novo.etapa === 'vendido' && !novo.dataVenda) novo.dataVenda = hoje();
+  if(novo.compareceu === true && (ETAPA_RANK[novo.etapa] ?? 0) < ETAPA_RANK.compareceu) novo.etapa = 'compareceu';
+
+  try{
+    await salvarLead(novo);
+    toast('Lead salvo');
+    fecharDrawer();
+    render();
+  }catch(e){ toast('Erro ao salvar: ' + e.message, true); }
+}
+
+async function apagarLead(fone){
+  if(!confirm('Apagar este lead de vez? Isso não volta.')) return;
+  try{
+    await db.collection('crm_leads').doc(fone).delete();
+    delete LEADS[fone];
+    toast('Lead apagado');
+    fecharDrawer();
+    render();
+  }catch(e){ toast('Erro ao apagar: ' + e.message, true); }
+}
+
+async function novoLead(){
+  const raw = prompt('Telefone do cliente (com DDD):');
+  if(!raw) return;
+  const fone = normFone(raw);
+  if(fone.length < 12){ toast('Telefone inválido', true); return; }
+  if(!LEADS[fone]){
+    const l = leadVazio(fone);
+    try{ await salvarLead(l); }catch(e){ toast('Erro: ' + e.message, true); return; }
+  }
+  render();
+  abrirLead(fone);
+}
+
+async function registrarRepescagem(fone, texto){
+  const l = LEADS[fone];
+  if(!l) return;
+  const novo = {...l, repescagens: [...(l.repescagens||[]),
+    {data: hoje(), texto: texto || 'registrada no painel', por: USUARIO || 'painel'}]};
+  try{
+    await salvarLead(novo);
+    toast(`Repescagem ${tentativas(novo)} de ${MAX_REPESCAGENS} registrada`);
+    render();
+    if(LEAD_ABERTO === fone) abrirLead(fone);
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+</script>
+
+<script>
+/* ══════════════════ REPESCAGEM ══════════════════ */
+
+/* Tabela de preços da loja. Vive aqui só para montar a sugestão de texto com o
+   valor POR ESCRITO — o vazamento nº 1 da operação é preço respondido em áudio.
+   MANTER EM DIA: se a loja reajustar, atualize aqui, senão a sugestão mente.
+   Ordem importa — 'dubai' antes da lista de sportfinos. */
+const PRECOS = [
+  {termos:['dubai'],                                    valor:349.90},
+  {termos:['hawai','hawaí','milão','milao','sneaker'],  valor:289.90},
+  {termos:['moscow','katar','londres','zurique','lisboa','madrid','nova york','nova iorque','paris','riviera','verona'], valor:299.90},
+  {termos:['fivela','bota','social','oxford','wholecut'], valor:329.90},
+  {termos:['slide'],                                    valor:219.90}
+];
+function precoDe(modelo){
+  const m = String(modelo||'').toLowerCase();
+  if(!m) return null;
+  for(const p of PRECOS) if(p.termos.some(t => m.includes(t))) return p.valor;
+  return null;
+}
+const ENTREGA_GRATIS_DDD = ['62'];
+const HORARIO_LOJA = 'de segunda a sexta das 9h às 18h e no sábado das 9h às 13h';
+
+/* As filas, em ordem de prioridade. Um lead entra na PRIMEIRA que casar —
+   nunca aparece em duas, senão a mesma pessoa seria chamada duas vezes. */
+const FILAS = [
+  {
+    id:'localizacao', nome:'Recebeu a localização e não apareceu',
+    desc:'Levou o endereço, não tem mensagem de pós-venda e sumiu. É a fila mais quente: já sabia onde é a loja e não veio.',
+    filtro: l => rankAlcancado(l) >= ETAPA_RANK.localizacao && l.compareceu !== true
+                 && diasDesde(l.ultimaLoja || l.ultimaCliente) >= DIAS_ESFRIOU
+  },
+  {
+    id:'agendou', nome:'Combinou dia e não voltou',
+    desc:'Marcou uma data para vir fechar o pedido, a data passou e ninguém apareceu.',
+    filtro: l => l.agendadoPara && l.agendadoPara < hoje() && l.compareceu !== true
+  },
+  {
+    id:'preco_audio', nome:'Perguntou o preço e recebeu áudio',
+    desc:'Perguntou o valor por escrito e a loja respondeu em áudio. O cliente não ouve e some — mandar o preço por escrito resolve.',
+    filtro: l => (l.tags||[]).includes('preco_so_audio')
+  },
+  {
+    id:'numeracao', nome:'Parou na numeração',
+    desc:'Já escolheu modelo e cor, travou na hora de confirmar o número.',
+    filtro: l => l.etapa === 'numeracao' && diasDesde(l.ultimaCliente || l.ultimaLoja) >= DIAS_ESFRIOU
+  },
+  {
+    id:'fotos', nome:'Sumiu depois das fotos',
+    desc:'Recebeu as fotos ou o catálogo e não respondeu mais.',
+    filtro: l => ['novo','atendido','preco'].includes(l.etapa)
+                 && diasDesde(l.ultimaCliente || l.ultimaLoja) >= DIAS_ESFRIOU
+  }
+];
+
+/* Monta as filas do dia. Só entra quem podeRepescar() libera. */
+function montarFilas(vendFiltro){
+  const usados = new Set();
+  return FILAS.map(f => {
+    const itens = todosLeads().filter(l => {
+      if(usados.has(l.telefone)) return false;
+      if(vendFiltro && l.vendedora !== vendFiltro) return false;
+      if(!podeRepescar(l).ok) return false;
+      if(!f.filtro(l)) return false;
+      usados.add(l.telefone);
+      return true;
+    }).sort((a,b) => diasDesde(b.ultimaCliente) - diasDesde(a.ultimaCliente));
+    return {...f, itens};
+  });
+}
+const contarRepescagem = () => montarFilas('').reduce((s,f) => s + f.itens.length, 0);
+
+/* Toda repescagem tem que levar INFORMAÇÃO NOVA, na ordem de prioridade do
+   playbook: preço por escrito → numeração separada → entrega grátis →
+   horário da loja. E sempre cita o que o cliente já escolheu. */
+function sugestaoTexto(l, fila){
+  const primeiro = (l.nome||'').trim().split(/\s+/)[0] || '';
+  const ola   = `${saudacao()}${primeiro ? ', ' + primeiro : ''}!`;
+  const preco = precoDe(l.modelo);
+  const escolha = [l.modelo, l.cor && l.cor.toLowerCase()].filter(Boolean).join(' ');
+  const temEntrega = ENTREGA_GRATIS_DDD.includes(dddDe(l.telefone));
+  const linhas = [ola];
+
+  if((l.tags||[]).includes('preco_so_audio') || rankAlcancado(l) < ETAPA_RANK.preco){
+    if(preco){
+      linhas.push(`Você tinha perguntado o valor, então deixo por escrito: o ${l.modelo} sai por ${brl(preco)}, em até 3x sem juros — couro legítimo, solado costurado e palmilha confort.`);
+    }else{
+      linhas.push(`Você tinha perguntado o valor e acho que ficou sem resposta por escrito. Me confirma o modelo que já te mando o valor certinho aqui.`);
+    }
+  }else if(l.numeracao){
+    linhas.push(`Passando para avisar que separei o ${escolha || 'seu modelo'} no ${l.numeracao} em seu nome, está aqui reservado.`);
+  }else if(escolha){
+    linhas.push(`Passando para saber se você ainda tem interesse no ${escolha}.`);
+  }else{
+    linhas.push('Passando para saber se você ainda tem interesse.');
+  }
+
+  if(fila === 'agendou' && l.agendadoPara){
+    linhas.push(`A gente tinha combinado para ${dataBonita(l.agendadoPara)} e acabou não dando certo — sem problema nenhum. Quer que eu deixe separado para outro dia?`);
+  }
+  if(temEntrega) linhas.push('A entrega é GRÁTIS para Goiânia e Aparecida.');
+  else           linhas.push('Também posso enviar para o seu endereço, é só me confirmar a cidade.');
+
+  if(fila === 'localizacao') linhas.push(`Estamos aqui ${HORARIO_LOJA}, se quiser dar uma passadinha para experimentar.`);
+  return linhas.join('\n\n');
+}
+
+function renderRepescagem(){
+  const vf = $('f-rep-vend').value;
+  const filas = montarFilas(vf);
+  $('bd-rep').textContent = contarRepescagem();
+
+  const total = filas.reduce((s,f)=>s+f.itens.length, 0);
+  if(!total){
+    $('filas').innerHTML = `<div class="vazio"><strong>Nada para repescar hoje</strong>
+      Ou todo mundo já foi chamado, ou as conversas ainda estão quentes demais
+      (a fila só considera quem está parado há ${DIAS_ESFRIOU} dias ou mais).</div>`;
+    return;
+  }
+
+  $('filas').innerHTML = filas.filter(f => f.itens.length).map(f => `
+    <div class="fila">
+      <div class="fila-head">
+        <div><div class="fila-tit">${esc(f.nome)}</div><div class="fila-desc">${esc(f.desc)}</div></div>
+        <div class="fila-cont">${f.itens.length}</div>
+      </div>
+      ${f.itens.map(l => `
+        <div class="rep-item">
+          <div>
+            <div class="rep-topo">
+              <span class="rep-nome">${esc(l.nome || foneBonito(l.telefone))}</span>
+              <span class="pill">${esc(l.vendedora)}</span>
+              <span class="pill"><span class="pill-dot" style="background:${ORIGEM_COR[l.origem]||'var(--o5)'}"></span>${esc(ORIGEM_NOME[l.origem]||'—')}</span>
+              ${tentativas(l) ? `<span class="pill pill-am">${tentativas(l)}ª tentativa foi ${dataBonita(ultimaRepesca(l))}</span>` : ''}
+            </div>
+            <div class="rep-meta">
+              ${esc([l.modelo, l.cor, l.numeracao && ('nº '+l.numeracao)].filter(Boolean).join(' · ') || 'sem modelo definido')}
+              · parado ${haQuantoTempo(l.ultimaCliente || l.ultimaLoja)}
+              · ${foneBonito(l.telefone)}
+            </div>
+            <div class="rep-sug">${esc(sugestaoTexto(l, f.id))}</div>
+          </div>
+          <div class="rep-acoes">
+            <a class="btn btn-sm" href="https://wa.me/${esc(l.telefone)}?text=${encodeURIComponent(sugestaoTexto(l, f.id))}" target="_blank" rel="noopener">Abrir no WhatsApp</a>
+            <button class="btn btn-sm btn-ok" onclick="registrarRepescagem('${esc(l.telefone)}','${esc(f.nome)}')">Marcar como repescado</button>
+            <button class="btn btn-sm" onclick="abrirLead('${esc(l.telefone)}')">Abrir ficha</button>
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+/* Fila em texto para o Claude executar a repescagem no WhatsApp Web. */
+function copiarFilaClaude(){
+  const filas = montarFilas($('f-rep-vend').value).filter(f => f.itens.length);
+  if(!filas.length){ toast('Nenhuma repescagem na fila', true); return; }
+  const txt = [
+    'Repescagem do dia — Loretto Scarpa.',
+    'Regras: no máximo uma mensagem por cliente hoje, teto de 3 no total (o contador já está abaixo),',
+    'toda mensagem precisa levar informação nova, e nada de falar de desconto, Pix ou parcelamento.',
+    'Depois de enviar, volte no CRM e registre a repescagem de cada um.',
+    ''
+  ];
+  for(const f of filas){
+    txt.push(`## ${f.nome} (${f.itens.length})`, f.desc, '');
+    for(const l of f.itens){
+      txt.push(`- ${l.nome || 'Sem nome'} · ${foneBonito(l.telefone)} · WhatsApp da ${l.vendedora}`);
+      txt.push(`  Já escolheu: ${[l.modelo, l.cor, l.numeracao && ('nº '+l.numeracao)].filter(Boolean).join(', ') || 'nada definido ainda'}`);
+      txt.push(`  Tentativas anteriores: ${tentativas(l)}`);
+      txt.push(`  Sugestão: ${sugestaoTexto(l, f.id).replace(/\n\n/g, ' / ')}`);
+      txt.push('');
+    }
+  }
+  const t = txt.join('\n');
+  navigator.clipboard.writeText(t)
+    .then(()=>toast(`Fila copiada — ${filas.reduce((s,f)=>s+f.itens.length,0)} clientes`))
+    .catch(()=>{ $('imp-json').value = t; irPara('importar'); toast('Não deu para copiar; o texto está na aba Importar', true); });
+}
+
+/* ══════════════════ AGENDA ══════════════════ */
+
+function renderAgenda(){
+  const vf = $('f-ag-vend').value;
+  const h = hoje();
+  const amanha = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+  const daquiUmaSemana = new Date(Date.now() + 7*86400000).toISOString().slice(0,10);
+
+  const marcados = todosLeads()
+    .filter(l => l.agendadoPara && l.compareceu !== true && l.etapa !== 'vendido' && l.etapa !== 'perdido')
+    .filter(l => !vf || l.vendedora === vf)
+    .sort((a,b) => String(a.agendadoPara).localeCompare(String(b.agendadoPara)));
+
+  const grupos = [
+    {nome:'Atrasados', sub:'a data passou e não apareceram', itens: marcados.filter(l => l.agendadoPara < h)},
+    {nome:'Hoje',      sub:'esperados na loja hoje',          itens: marcados.filter(l => l.agendadoPara === h)},
+    {nome:'Amanhã',    sub:'vale confirmar na véspera',       itens: marcados.filter(l => l.agendadoPara === amanha)},
+    {nome:'Próximos dias', sub:'até uma semana',              itens: marcados.filter(l => l.agendadoPara > amanha && l.agendadoPara <= daquiUmaSemana)}
+  ].filter(g => g.itens.length);
+
+  $('bd-ag').textContent = marcados.filter(l => l.agendadoPara <= h).length;
+  $('tag-ag').textContent = `${marcados.length} marcados`;
+
+  if(!grupos.length){
+    $('agenda').innerHTML = `<div class="vazio"><strong>Nenhuma visita marcada</strong>
+      Quando uma vendedora combinar dia e hora com o cliente, marque na ficha do lead
+      em <b>Combinou de vir em</b> — ele aparece aqui.</div>`;
+    return;
+  }
+
+  $('agenda').innerHTML = grupos.map(g => `
+    <div class="ag-dia">
+      <div class="ag-dia-tit">${esc(g.nome)}</div>
+      <div class="ag-dia-sub">${esc(g.sub)} · ${g.itens.length}</div>
+      <div class="tab-wrap"><table class="tab"><thead><tr>
+        <th>Cliente</th><th>Vendedora</th><th>Quando</th><th>Interesse</th><th>Confirmar</th>
+      </tr></thead><tbody>
+        ${g.itens.map(l => `<tr>
+          <td onclick="abrirLead('${esc(l.telefone)}')">
+            <div class="t-nome">${esc(l.nome || 'Sem nome')}</div>
+            <div class="t-fone">${foneBonito(l.telefone)}</div></td>
+          <td onclick="abrirLead('${esc(l.telefone)}')">${esc(l.vendedora)}</td>
+          <td onclick="abrirLead('${esc(l.telefone)}')">
+            ${dataBonita(l.agendadoPara)}${l.agendadoHora ? ' às ' + esc(l.agendadoHora) : ''}
+            <div class="t-fone">${DIAS_SEM[new Date(l.agendadoPara+'T12:00:00').getDay()] || ''}</div></td>
+          <td onclick="abrirLead('${esc(l.telefone)}')">${esc([l.modelo, l.cor, l.numeracao].filter(Boolean).join(' · ') || '—')}</td>
+          <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-ok" onclick="marcarVisita('${esc(l.telefone)}',true)">Veio</button>
+            <button class="btn btn-sm btn-er" onclick="marcarVisita('${esc(l.telefone)}',false)">Não veio</button>
+          </div></td>
+        </tr>`).join('')}
+      </tbody></table></div>
+    </div>`).join('');
+}
+
+async function marcarVisita(fone, veio){
+  const l = LEADS[fone];
+  if(!l) return;
+  const novo = {...l, compareceu: veio};
+  if(veio && (ETAPA_RANK[l.etapa] ?? 0) < ETAPA_RANK.compareceu) novo.etapa = 'compareceu';
+  novo.etapaMaxRank = Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK[novo.etapa] ?? -1);
+  try{
+    await salvarLead(novo);
+    toast(veio ? 'Marcado como compareceu' : 'Marcado como não compareceu — entra na fila de repescagem');
+    render();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+</script>
+
+<script>
+/* ══════════════════ IMPORTAÇÃO — A PONTE COM O CLAUDE ══════════════════
+   O Claude varre o WhatsApp Web de uma vendedora (skill loretto-scarpa-atendimento),
+   classifica cada conversa e devolve este JSON. Duas formas de entregar:
+     1. colar na aba Importar e clicar em Importar;
+     2. chamar window.CRM.importar(obj) direto no console desta aba.
+   ══════════════════════════════════════════════════════════════════════ */
+
+const EXEMPLO_JSON = JSON.stringify({
+  vendedora: 'Jhennifer',
+  mensagensDia: { '2026-08-09': { recebidas: 47, enviadas: 39 } },
+  leads: [
+    {
+      telefone: '62991234567', nome: 'Danilo', origem: 'anuncio', campanha: 'LOAFER DUBAI',
+      modelo: 'Loafer Dubai', cor: 'Preto', numeracao: '41',
+      etapa: 'localizacao', tags: ['preco_so_audio'],
+      primeiroContato: '2026-08-03', ultimaCliente: '2026-08-05', ultimaLoja: '2026-08-05',
+      msgsCliente: 12, msgsLoja: 9
+    },
+    {
+      telefone: '62998887777', nome: 'Rafael', origem: 'organico',
+      modelo: 'Sneaker Milão', etapa: 'atendido', tags: ['sem_resposta'],
+      primeiroContato: '2026-08-07', ultimaCliente: '2026-08-07', msgsCliente: 4, msgsLoja: 6
+    }
+  ]
+}, null, 2);
+
+const CAMPOS_ACEITOS = new Set([
+  'telefone','nome','vendedora','origem','campanha','modelo','cor','numeracao','etapa','tags',
+  'primeiroContato','ultimaCliente','ultimaLoja','msgsCliente','msgsLoja','agendadoPara',
+  'agendadoHora','compareceu','valorVenda','dataVenda','repescagens','bloquearRepescagem',
+  'motivoBloqueio','obs'
+]);
+
+async function importarPayload(payload){
+  if(!payload || typeof payload !== 'object') throw new Error('JSON inválido');
+  const avisos = [];
+  const vendPadrao = payload.vendedora;
+  if(vendPadrao && !VENDEDORAS.includes(vendPadrao))
+    throw new Error(`Vendedora "${vendPadrao}" não existe. Use: ${VENDEDORAS.join(', ')}`);
+
+  const leads = Array.isArray(payload.leads) ? payload.leads : [];
+  let novos = 0, atualizados = 0;
+  const lote = db.batch();
+
+  for(const cru of leads){
+    const fone = normFone(cru.telefone);
+    if(fone.length < 12){ avisos.push(`Telefone inválido ignorado: ${cru.telefone}`); continue; }
+
+    const limpo = {};
+    for(const [k, v] of Object.entries(cru)){
+      if(!CAMPOS_ACEITOS.has(k)){ avisos.push(`Campo desconhecido ignorado: ${k}`); continue; }
+      limpo[k] = v;
+    }
+    limpo.telefone = fone;
+    if(!limpo.vendedora && vendPadrao) limpo.vendedora = vendPadrao;
+    if(limpo.vendedora && !VENDEDORAS.includes(limpo.vendedora)){
+      avisos.push(`${fone}: vendedora "${limpo.vendedora}" não existe — usei ${vendPadrao || VENDEDORAS[0]}`);
+      limpo.vendedora = vendPadrao || VENDEDORAS[0];
+    }
+    if(limpo.origem && !ORIGENS.some(o => o.id === limpo.origem)){
+      avisos.push(`${fone}: origem "${limpo.origem}" não existe — gravei como não identificada`);
+      limpo.origem = 'desconhecida';
+    }
+    if(limpo.etapa && !ETAPAS.some(e => e.id === limpo.etapa)){
+      avisos.push(`${fone}: etapa "${limpo.etapa}" não existe — ignorei`);
+      delete limpo.etapa;
+    }
+    if(Array.isArray(limpo.tags)){
+      const ruins = limpo.tags.filter(t => !TAGS.some(x => x.id === t));
+      if(ruins.length) avisos.push(`${fone}: situações desconhecidas ignoradas — ${ruins.join(', ')}`);
+      limpo.tags = limpo.tags.filter(t => TAGS.some(x => x.id === t));
+    }
+
+    const existe = !!LEADS[fone];
+    const base = LEADS[fone] || leadVazio(fone);
+    const final = mesclarLead(base, limpo);
+    final.atualizadoEm  = new Date().toISOString();
+    final.atualizadoPor = payload.por || 'claude';
+    LEADS[fone] = final;
+    lote.set(db.collection('crm_leads').doc(fone), final, {merge:true});
+    existe ? atualizados++ : novos++;
+  }
+
+  // Volume diário de mensagens — alimenta o gráfico por vendedora
+  let dias = 0;
+  const md = payload.mensagensDia || {};
+  for(const [dia, val] of Object.entries(md)){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(dia)){ avisos.push(`Data inválida ignorada: ${dia}`); continue; }
+    // aceita {recebidas,enviadas} solto (usa a vendedora do payload) ou por vendedora
+    const porVend = ('recebidas' in val || 'enviadas' in val)
+      ? (vendPadrao ? {[vendPadrao]: val} : null)
+      : val;
+    if(!porVend){ avisos.push(`${dia}: sem vendedora definida para o volume de mensagens`); continue; }
+    const limpo = {};
+    for(const [v, o] of Object.entries(porVend)){
+      if(!VENDEDORAS.includes(v)){ avisos.push(`${dia}: vendedora "${v}" não existe`); continue; }
+      limpo[v] = {recebidas: Number(o.recebidas||0), enviadas: Number(o.enviadas||0)};
+    }
+    if(!Object.keys(limpo).length) continue;
+    MSGS_DIA[dia] = {...(MSGS_DIA[dia]||{}), ...limpo};
+    lote.set(db.collection('crm_msgs').doc(dia), limpo, {merge:true});
+    dias++;
+  }
+
+  await lote.commit();
+  return {novos, atualizados, dias, avisos};
+}
+
+async function importarJSON(){
+  const txt = $('imp-json').value.trim();
+  if(!txt){ toast('Cole o JSON primeiro', true); return; }
+  let obj;
+  try{ obj = JSON.parse(txt); }
+  catch(e){ $('imp-res').innerHTML = `<div class="vazio" style="border-color:rgba(192,80,74,.4);color:#e0a09c;">JSON malformado: ${esc(e.message)}</div>`; return; }
+  try{
+    const r = await importarPayload(obj);
+    $('imp-res').innerHTML = `<div class="card" style="margin:0;">
+      <div class="card-tit">Importado</div>
+      <div class="card-sub" style="margin-bottom:12px;">
+        ${r.novos} lead(s) novo(s) · ${r.atualizados} atualizado(s) · ${r.dias} dia(s) de volume de mensagens</div>
+      ${r.avisos.length ? `<div class="doc-nota"><b>Avisos:</b><ul>${r.avisos.slice(0,25).map(a=>`<li>${esc(a)}</li>`).join('')}</ul>
+        ${r.avisos.length > 25 ? `<div style="margin-top:8px;color:var(--cr3);">e mais ${r.avisos.length-25}...</div>` : ''}</div>` : ''}</div>`;
+    toast(`${r.novos + r.atualizados} leads gravados`);
+    render();
+  }catch(e){
+    $('imp-res').innerHTML = `<div class="vazio" style="border-color:rgba(192,80,74,.4);color:#e0a09c;">${esc(e.message)}</div>`;
+  }
+}
+
+function baixar(nome, conteudo, tipo){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([conteudo], {type: tipo}));
+  a.download = nome;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportarJSON(){
+  baixar(`crm-loretto-${hoje()}.json`,
+    JSON.stringify({leads: todosLeads(), mensagensDia: MSGS_DIA}, null, 2), 'application/json');
+  toast('Exportado');
+}
+
+function exportarCSV(){
+  const ls = leadsFiltrados();
+  if(!ls.length){ toast('Nada para exportar', true); return; }
+  const cols = ['telefone','nome','vendedora','origem','etapa','modelo','cor','numeracao',
+                'primeiroContato','ultimaCliente','msgsCliente','msgsLoja','agendadoPara',
+                'compareceu','valorVenda','tags','obs'];
+  const cel = v => {
+    const t = Array.isArray(v) ? v.join('|') : (v === null || v === undefined ? '' : String(v));
+    return /[",;\n]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
+  };
+  const csv = '﻿' + [cols.join(';'), ...ls.map(l => cols.map(c => cel(l[c])).join(';'))].join('\n');
+  baixar(`leads-loretto-${hoje()}.csv`, csv, 'text/csv;charset=utf-8');
+  toast(`${ls.length} leads exportados`);
+}
+
+/* API pública — o Claude chama isto direto no console desta aba. */
+window.CRM = {
+  importar: async (payload) => { const r = await importarPayload(payload); render(); return r; },
+  leads:    () => todosLeads(),
+  lead:     (fone) => LEADS[normFone(fone)] || null,
+  filas:    (vend) => montarFilas(vend || '').map(f => ({fila: f.nome, clientes: f.itens.map(l => ({
+              telefone: l.telefone, nome: l.nome, vendedora: l.vendedora,
+              modelo: l.modelo, cor: l.cor, numeracao: l.numeracao,
+              tentativas: tentativas(l), sugestao: sugestaoTexto(l, f.id)
+            }))})).filter(f => f.clientes.length),
+  resumo:   () => metricas(),
+  recarregar: async () => { await carregarDados(); render(); return 'ok'; },
+  vocabulario: {vendedoras: VENDEDORAS, origens: ORIGENS.map(o=>o.id), etapas: ETAPAS.map(e=>e.id), tags: TAGS.map(t=>t.id)}
+};
+
+const DOC_SCHEMA = `COLEÇÕES NO FIRESTORE (projeto loretto-scarpa-l-icr)
+
+  crm_leads/{telefone}    um documento por cliente; o telefone é a chave
+  crm_msgs/{AAAA-MM-DD}   volume diário de mensagens por vendedora
+
+COMO O CLAUDE GRAVA
+
+  window.CRM.importar({ ... })     no console desta aba
+  ou cole o JSON no campo acima e clique em Importar
+
+FORMATO
+
+  {
+    "vendedora": "Jhennifer",              vale para todos os leads sem vendedora própria
+    "mensagensDia": {
+      "2026-08-09": {"recebidas": 47, "enviadas": 39}
+    },
+    "leads": [{
+      "telefone":        "62991234567",    obrigatório; aceita qualquer formatação
+      "nome":            "Danilo",
+      "origem":          ${JSON.stringify(ORIGENS.map(o=>o.id))},
+      "campanha":        "LOAFER DUBAI",   modelo em maiúsculas do banner do anúncio
+      "modelo":          "Loafer Dubai",
+      "cor":             "Preto",
+      "numeracao":       "41",
+      "etapa":           ${JSON.stringify(ETAPAS.map(e=>e.id))},
+      "tags":            ${JSON.stringify(TAGS.map(t=>t.id))},
+      "primeiroContato": "2026-08-03",     AAAA-MM-DD
+      "ultimaCliente":   "2026-08-05",     última mensagem VINDA do cliente
+      "ultimaLoja":      "2026-08-05",     última mensagem enviada PELA loja
+      "msgsCliente":     12,               recebidas nessa conversa
+      "msgsLoja":        9,
+      "agendadoPara":    "2026-08-12",     quando combinou de vir à loja
+      "agendadoHora":    "15:00",
+      "compareceu":      true,
+      "valorVenda":      349.90,
+      "obs":             "texto livre"
+    }]
+  }
+
+REGRAS DE GRAVAÇÃO
+
+  · O telefone é a chave — o mesmo cliente nunca duplica.
+  · Campo ausente NÃO apaga o que já está salvo. Mande só o que você leu.
+  · "tags" soma às que já existem; a edição manual no painel substitui.
+  · "etapa" nunca anda para trás numa importação — só 'perdido' pode.
+    O painel guarda a etapa mais avançada já alcançada, para o funil não mentir.
+  · "msgsCliente"/"msgsLoja" ficam com o MAIOR valor entre o salvo e o enviado.
+  · "repescagens" são deduplicadas por data — reimportar não infla o contador.
+  · Estas situações BLOQUEIAM repescagem automaticamente:
+    ${TAGS.filter(t=>t.bloqueia).map(t=>t.id).join(', ')}`;
+
+/* ══════════════════ NAVEGAÇÃO ══════════════════ */
+
+function irPara(pag){
+  PAG_ATUAL = pag;
+  document.querySelectorAll('.pag').forEach(p => p.classList.toggle('ativa', p.id === 'pag-' + pag));
+  document.querySelectorAll('.aba').forEach(a => a.classList.toggle('ativa', a.dataset.pag === pag));
+  render();
+}
+
+function render(){
+  $('mes-atual').textContent = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
+  try{
+    if(PAG_ATUAL === 'painel')     renderPainel();
+    if(PAG_ATUAL === 'leads')      renderLeads();
+    if(PAG_ATUAL === 'repescagem') renderRepescagem();
+    if(PAG_ATUAL === 'agenda')     renderAgenda();
+    // badges continuam certos mesmo fora da aba
+    $('bd-leads').textContent = leadsDoMes().length;
+    $('bd-rep').textContent   = contarRepescagem();
+    $('bd-ag').textContent    = todosLeads().filter(l => l.agendadoPara && l.agendadoPara <= hoje()
+                                  && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa)).length;
+  }catch(e){
+    console.error(e);
+    toast('Erro ao desenhar a tela: ' + e.message, true);
+  }
+}
+
+/* Tooltip nos gráficos — o alvo é a linha inteira, não só a barra */
+(function(){
+  const tip = $('tip');
+  document.addEventListener('mousemove', ev => {
+    const alvo = ev.target.closest('[data-tip]');
+    if(!alvo || !alvo.dataset.tip){ tip.classList.remove('show'); return; }
+    tip.textContent = alvo.dataset.tip;
+    tip.classList.add('show');
+    const r = tip.getBoundingClientRect();
+    let x = ev.clientX + 14, y = ev.clientY - r.height - 10;
+    if(x + r.width > innerWidth - 8)  x = ev.clientX - r.width - 14;
+    if(y < 8) y = ev.clientY + 18;
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
+  });
+  document.addEventListener('scroll', () => tip.classList.remove('show'), true);
+})();
+
+document.addEventListener('keydown', e => { if(e.key === 'Escape') fecharDrawer(); });
+
+/* ══════════════════ AUTENTICAÇÃO ══════════════════ */
+
+function entrar(){
+  const email = $('li-email').value.trim(), senha = $('li-senha').value;
+  if(!email || !senha){ $('li-erro').textContent = 'Preencha e-mail e senha.'; return; }
+  $('li-btn').disabled = true;
+  $('li-erro').textContent = '';
+  auth.signInWithEmailAndPassword(email, senha)
+    .catch(e => {
+      const msgs = {
+        'auth/invalid-email':'E-mail inválido.',
+        'auth/user-not-found':'Usuário não encontrado.',
+        'auth/wrong-password':'Senha incorreta.',
+        'auth/invalid-credential':'E-mail ou senha incorretos.',
+        'auth/too-many-requests':'Muitas tentativas. Espere um pouco.'
+      };
+      $('li-erro').textContent = msgs[e.code] || e.message;
+    })
+    .finally(() => { $('li-btn').disabled = false; });
+}
+function sair(){ auth.signOut(); }
+
+$('li-senha').addEventListener('keydown', e => { if(e.key === 'Enter') entrar(); });
+
+auth.onAuthStateChanged(async user => {
+  $('auth-loading').style.display = 'none';
+  if(!user){
+    $('tela-login').classList.add('show');
+    $('tela-app').style.display = 'none';
+    return;
+  }
+  USUARIO = user.email || 'painel';
+  $('tela-login').classList.remove('show');
+  $('tela-app').style.display = 'block';
+  $('h-email').textContent = USUARIO;
+  $('doc-schema').textContent = DOC_SCHEMA;
+  preencherFiltros();
+  try{
+    await carregarDados();
+  }catch(e){
+    toast('Não consegui ler o Firestore: ' + e.message, true);
+  }
+  render();
+});
+</script>
+
+</body>
+</html>

@@ -309,14 +309,14 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
 
       <div class="slbl">De onde vieram os clientes</div>
       <div class="card">
-        <div class="card-tit">Origem dos leads</div>
-        <div class="card-sub">Total do mês, por canal de entrada</div>
+        <div class="card-tit">Leads por departamento</div>
+        <div class="card-sub">Cada departamento tem um texto de entrada próprio, então isso é contagem exata — não estimativa. A cor indica o grupo.</div>
         <div class="bars" id="ch-origem"></div>
         <div class="leg" id="leg-origem"></div>
       </div>
       <div class="card">
         <div class="card-tit">Origem por vendedora</div>
-        <div class="card-sub">Como a carteira de cada uma se divide entre os canais</div>
+        <div class="card-sub">Como a carteira de cada uma se divide entre os grupos — pago, Instagram, orgânico e quem já era cliente</div>
         <div id="ch-origem-vend"></div>
         <div class="leg" id="leg-origem2"></div>
       </div>
@@ -330,8 +330,8 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
 
       <div class="slbl">Conversão por origem</div>
       <div class="card">
-        <div class="card-tit">Qual canal traz cliente que compra</div>
-        <div class="card-sub">Percentual de leads de cada canal que viraram venda</div>
+        <div class="card-tit">Qual departamento traz cliente que compra</div>
+        <div class="card-sub">Percentual de leads de cada departamento que viraram venda. É isto que diz onde a verba rende.</div>
         <div class="bars" id="ch-conv-origem"></div>
       </div>
     </div>
@@ -537,15 +537,50 @@ auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
 
 const VENDEDORAS = ['Jhennifer', 'Ialey', 'Michelly', 'Natália'];
 
-const ORIGENS = [
-  {id:'anuncio',      nome:'Anúncio',          cor:'var(--o1)', desc:'Meta Ads — entrou pelo banner do anúncio'},
-  {id:'instagram',    nome:'Instagram',        cor:'var(--o2)', desc:'Veio do perfil, direct ou stories'},
-  {id:'organico',     nome:'Orgânico',         cor:'var(--o3)', desc:'Achou a loja sozinho, Google, passou na frente'},
-  {id:'indicacao',    nome:'Indicação',        cor:'var(--o4)', desc:'Indicado por outro cliente'},
-  {id:'desconhecida', nome:'Não identificada', cor:'var(--o5)', desc:'Origem não deu para identificar na conversa'}
+/* Os DEPARTAMENTOS, como a operação os chama. Cada um tem um texto de entrada
+   próprio — são campanhas diferentes, não sinônimos.
+   O `grupo` existe porque seis cores num gráfico não se distinguem: a cor
+   carrega o grupo (a leitura estratégica) e o nome do departamento vem escrito
+   ao lado (a leitura detalhada). Identidade nunca fica só na cor. */
+const GRUPOS = [
+  {id:'pago',        nome:'Anúncio pago',     cor:'var(--o1)'},
+  {id:'instagram',   nome:'Instagram',        cor:'var(--o2)'},
+  {id:'organico',    nome:'Orgânico',         cor:'var(--o3)'},
+  {id:'cliente',     nome:'Já é cliente',     cor:'var(--o4)'},
+  {id:'desconhecido',nome:'Não identificada', cor:'var(--o5)'}
 ];
-const ORIGEM_NOME = Object.fromEntries(ORIGENS.map(o=>[o.id,o.nome]));
-const ORIGEM_COR  = Object.fromEntries(ORIGENS.map(o=>[o.id,o.cor]));
+const GRUPO_NOME = Object.fromEntries(GRUPOS.map(g=>[g.id,g.nome]));
+const GRUPO_COR  = Object.fromEntries(GRUPOS.map(g=>[g.id,g.cor]));
+
+const ORIGENS = [
+  {id:'publico_frio',  nome:'Público Frio',     grupo:'pago',        desc:'Anúncio para quem nunca teve contato — abre declarando a cidade'},
+  {id:'remarketing',   nome:'Remarketing',      grupo:'pago',        desc:'Anúncio para quem já interagiu — abre com "vim do Instagram"'},
+  {id:'anuncio_outro', nome:'Anúncio s/ campanha', grupo:'pago',     desc:'Texto de anúncio, mas sem marcador de qual campanha'},
+  {id:'bio_instagram', nome:'Bio do Instagram', grupo:'instagram',   desc:'Link da bio do perfil — pede o catálogo'},
+  {id:'cupom_5',       nome:'Cupom 5%',         grupo:'instagram',   desc:'Direct da campanha de 5% na primeira compra'},
+  {id:'cliente',       nome:'Cliente',          grupo:'cliente',     desc:'Número já salvo como cliente — é recompra, não aquisição'},
+  {id:'indicacao',     nome:'Indicação',        grupo:'organico',    desc:'Indicado por outro cliente'},
+  {id:'organico',      nome:'Orgânico',         grupo:'organico',    desc:'Não veio de nenhuma campanha'},
+  {id:'desconhecida',  nome:'Não identificada', grupo:'desconhecido',desc:'Sem a primeira mensagem, não dá para dizer'}
+];
+const ORIGEM_NOME  = Object.fromEntries(ORIGENS.map(o=>[o.id,o.nome]));
+const ORIGEM_GRUPO = Object.fromEntries(ORIGENS.map(o=>[o.id,o.grupo]));
+const ORIGEM_COR   = Object.fromEntries(ORIGENS.map(o=>[o.id, GRUPO_COR[o.grupo]]));
+const grupoDe = l => ORIGEM_GRUPO[l.origem || 'desconhecida'] || 'desconhecido';
+
+/* Taxonomia antiga (5 origens genéricas) → departamentos. Usa a regra que
+   classificou na época para não chutar: quem casou com 'link da bio' vira Bio,
+   quem casou com o perfil vira orgânico, e anúncio sem campanha fica explícito
+   como tal em vez de virar Público Frio por adivinhação. */
+const MIGRAR_ORIGEM = {anuncio:'anuncio_outro', instagram:'bio_instagram', organico:'organico',
+                       indicacao:'indicacao', desconhecida:'desconhecida'};
+function migrarOrigem(l){
+  if(!l.origem || ORIGEM_NOME[l.origem]) return l;
+  if(l.origemAuto === 'instagram_perfil') l.origem = 'organico';
+  else if(l.origemAuto === 'instagram_bio') l.origem = 'bio_instagram';
+  else l.origem = MIGRAR_ORIGEM[l.origem] || 'desconhecida';
+  return l;
+}
 
 /* Funil. `rank` é a ordem de avanço: quem está em 'vendido' já passou por todas
    as anteriores, então conta em todas elas na leitura do funil.
@@ -736,49 +771,70 @@ function modeloEmCaixaAlta(txt){
 }
 
 const REGRAS_ORIGEM = [
-  { id:'anuncio_interesse', origem:'anuncio', confianca:'alta',
-    desc:'Template do anúncio — "quero/tenho interesse em saber mais informações"',
-    frases:['quero saber mais informacoes','gostaria de saber mais informacoes',
-            'tenho interesse em saber mais sobre','tenho interesse em ver mais informacoes',
-            'tenho interesse em saber mais informacoes','quero mais informacoes sobre',
-            'gostaria de mais informacoes'],
-    teste(n){ return this.frases.some(f => n.includes(f)); } },
+  /* O nome salvo do contato vence tudo. "Gregory Cliente" é convenção da própria
+     loja para quem já comprou — saber que é recompra muda o atendimento inteiro,
+     e vale mais do que por qual anúncio essa pessoa voltou a escrever. */
+  { id:'cliente_no_nome', origem:'cliente', confianca:'alta',
+    desc:'Contato salvo com "Cliente" no nome — ex.: "Gregory Cliente"',
+    usaNome:true,
+    teste:(n,cru,nome) => /\bclientes?\b/.test(normTxt(nome)) },
 
-  { id:'anuncio_cidade', origem:'anuncio', confianca:'alta',
-    desc:'Template do anúncio que abre declarando a cidade — "sou de Goiânia e quero saber mais"',
-    teste:n => /sou de [a-z\u00e0-\u00fc ]{3,20}e (quero|gostaria|tenho)/.test(n) },
+  /* Direct — campanha do cupom de 5% na primeira compra. Testada antes da Bio
+     porque as duas terminam pedindo o catálogo. */
+  { id:'cupom_5', origem:'cupom_5', confianca:'alta',
+    desc:'"tenho 5% de desconto para realizar a minha primeira compra"',
+    teste:n => n.includes('5% de desconto') || n.includes('5 % de desconto')
+               || (n.includes('desconto') && n.includes('primeira compra')) },
 
-  { id:'anuncio_instagram', origem:'anuncio', confianca:'alta',
-    desc:'Template do anúncio veiculado no Instagram — "vim no Instagram e quero saber mais"',
-    teste:n => /vim (n?o|pelo|do|pelo) instagram/.test(n) && /(quero|gostaria|interesse|informac)/.test(n) },
+  { id:'bio_instagram', origem:'bio_instagram', confianca:'alta',
+    desc:'"vim pelo link da bio e quero receber o catálogo"',
+    teste:n => /vim pel[oa] link d[ao] bio|link d[ao] bio/.test(n) },
 
-  { id:'anuncio_modelo_caps', origem:'anuncio', confianca:'media',
-    desc:'Modelo escrito em MAIÚSCULAS, como vem no banner do anúncio',
-    teste:(n,cru) => modeloEmCaixaAlta(cru).length > 0 },
+  /* Remarketing — anúncio para quem já interagiu. O texto abre com "vim do
+     Instagram", que é justamente o que o diferencia do Público Frio. */
+  { id:'remarketing', origem:'remarketing', confianca:'alta',
+    desc:'"vim do Instagram e quero saber mais informações sobre..."',
+    teste:n => /vim d[oe] instagram|vim pelo instagram/.test(n) },
 
-  { id:'instagram_bio', origem:'instagram', confianca:'alta',
-    desc:'Veio pelo link da bio do perfil',
-    teste:n => /link (d[ao]|n[ao]) bio/.test(n) },
-
-  { id:'instagram_perfil', origem:'instagram', confianca:'media',
-    desc:'Citou o perfil, story ou publicação — chegou pelo Instagram, mas não por anúncio',
-    teste:n => /(vi|achei|encontrei|segui) (voces|vcs|a loja|o perfil|seu perfil|o insta)/.test(n)
-               || /(no|nos) (seu perfil|stories|story|storys|reels|feed)/.test(n)
-               || /vi (no|um|uns) (story|storys|stories|post|reels|video)/.test(n) },
+  /* Público Frio — abre declarando a cidade. O texto já teve variações
+     ("sou de" / "estou em", "tenho interesse" / "quero saber"), então a regra
+     cobre as duas formas em vez de casar uma frase literal. */
+  { id:'publico_frio', origem:'publico_frio', confianca:'alta',
+    desc:'"sou de / estou em Goiânia" + interesse — anúncio de público frio',
+    teste:n => /(sou de|estou em|moro em|sou d[ao]) [a-z\u00e0-\u00fc ]{3,25}/.test(n)
+               && /(interesse|informac|saber mais)/.test(n) },
 
   { id:'indicacao', origem:'indicacao', confianca:'alta',
     desc:'Citou quem indicou',
-    teste:n => /indic(ou|aram|acao)|indicacao d[eo]|(amigo|colega|primo|irmao|cunhado) (me falou|comprou|indicou)/.test(n) }
+    teste:n => /indic(ou|aram|acao)|indicacao d[eo]|(amigo|colega|primo|irmao|cunhado) (me falou|comprou|indicou)/.test(n) },
+
+  /* Última das regras de anúncio: tem a cara do template mas sem o marcador que
+     diz de qual campanha veio. Fica explícito como "sem campanha" em vez de ser
+     jogado no Público Frio — chutar aqui contaminaria a leitura de verba. */
+  { id:'anuncio_generico', origem:'anuncio_outro', confianca:'media',
+    desc:'Texto de anúncio sem marcador de campanha',
+    teste:(n,cru) => /(quero saber mais informac|tenho interesse em saber mais|quero receber o catalogo|gostaria de saber mais informac)/.test(n)
+                     || modeloEmCaixaAlta(cru).length > 0 },
+
+  /* Chegou pelo perfil, mas não por campanha rastreada. */
+  { id:'organico_perfil', origem:'organico', confianca:'media',
+    desc:'Citou perfil, story ou reels sem ser por campanha',
+    teste:n => /(vi|achei|encontrei|segui) (voces|vcs|a loja|o perfil|seu perfil|o insta)/.test(n)
+               || /(no|nos) (seu perfil|stories|story|storys|reels|feed)/.test(n)
+               || /vi (no|um|uns) (story|storys|stories|post|reels|video)/.test(n) }
 ];
 
 /* Devolve {origem, regra, confianca} ou null quando nenhuma regra casa. */
-function classificarOrigem(texto){
+function classificarOrigem(texto, nome){
   const cru = String(texto||'').trim();
-  if(!cru) return null;
+  const nm  = String(nome||'').trim();
+  if(!cru && !nm) return null;
   const n = normTxt(cru);
   for(const r of REGRAS_ORIGEM){
+    // Regras que leem o nome do contato funcionam mesmo sem a primeira mensagem
+    if(!cru && !r.usaNome) continue;
     let bateu = false;
-    try{ bateu = r.teste(n, cru); }catch(e){ bateu = false; }
+    try{ bateu = r.teste(n, cru, nm); }catch(e){ bateu = false; }
     if(bateu) return {origem: r.origem, regra: r.id, confianca: r.confianca};
   }
   return null;
@@ -788,7 +844,7 @@ function classificarOrigem(texto){
    mão — decisão humana ganha da regra, sempre. */
 function aplicarClassificacao(lead){
   if(lead.origemManual) return lead;
-  const c = classificarOrigem(lead.primeiraMensagem);
+  const c = classificarOrigem(lead.primeiraMensagem, lead.nome);
   if(!c) return lead;
   lead.origem = c.origem;
   lead.origemAuto = c.regra;
@@ -831,7 +887,7 @@ function mesclarLead(atual, novo){
   // Classifica a origem sozinho a partir da primeira mensagem do cliente.
   // Se a varredura já mandou a origem explícita, ela vale; a regra só preenche
   // o que veio vazio ou o que ela mesma tinha preenchido antes.
-  if(r.primeiraMensagem && !r.origemManual &&
+  if((r.primeiraMensagem || r.nome) && !r.origemManual &&
      (!novo.origem || r.origem === 'desconhecida' || r.origemAuto)) aplicarClassificacao(r);
   // Pós-venda na conversa = compra fechada. É marcador exato, então vale sozinho.
   if(r.posVendaEnviado && r.etapa !== 'vendido'){
@@ -898,7 +954,7 @@ async function carregarDados(){
     db.collection('crm_msgs').get()
   ]);
   LEADS = {};
-  snapLeads.forEach(d => { LEADS[d.id] = {...leadVazio(d.id), ...d.data(), telefone: d.id}; });
+  snapLeads.forEach(d => { LEADS[d.id] = migrarOrigem({...leadVazio(d.id), ...d.data(), telefone: d.id}); });
   MSGS_DIA = {};
   snapMsgs.forEach(d => { MSGS_DIA[d.id] = d.data() || {}; });
 }
@@ -985,7 +1041,15 @@ function metricas(){
   const porOrigem = ORIGENS.map(o => {
     const meus = leads.filter(l => (l.origem||'desconhecida') === o.id);
     const vend = meus.filter(l => l.etapa === 'vendido');
-    return {...o, leads: meus.length, vendas: vend.length, conversao: pct(vend.length, meus.length)};
+    return {...o, cor: GRUPO_COR[o.grupo], leads: meus.length, vendas: vend.length,
+            conversao: pct(vend.length, meus.length),
+            faturado: vend.reduce((s,l)=>s+Number(l.valorVenda||0),0)};
+  });
+
+  const porGrupo = GRUPOS.map(g => {
+    const meus = leads.filter(l => grupoDe(l) === g.id);
+    const vend = meus.filter(l => l.etapa === 'vendido');
+    return {...g, leads: meus.length, vendas: vend.length, conversao: pct(vend.length, meus.length)};
   });
 
   // Funil: cada etapa conta quem CHEGOU até ali, inclusive quem já passou adiante
@@ -1002,7 +1066,7 @@ function metricas(){
     leads, total: leads.length, vendas: vendidos.length,
     conversao: pct(vendidos.length, leads.length),
     faturado, ticket: vendidos.length ? faturado/vendidos.length : 0,
-    recebidas, fonteMsgs: fonte, porVend, porOrigem, funil,
+    recebidas, fonteMsgs: fonte, porVend, porOrigem, porGrupo, funil,
     visitas: visitas.length,
     convLeadVisita:  pct(visitas.length, leads.length),
     convVisitaVenda: pct(vendasLoja.length, visitas.length),
@@ -1194,17 +1258,19 @@ function renderPainel(){
   barras($('ch-origem'), orig.map(o => ({
     nome: o.nome, valor: o.leads, cor: o.cor,
     rotulo: `${o.leads} <small>(${pct(o.leads, m.total)}%)</small>`,
-    tip: `${o.nome}: ${o.leads} leads · ${o.vendas} viraram venda`
+    tip: `${o.nome}: ${o.leads} leads · ${o.vendas} viraram venda · grupo ${GRUPO_NOME[o.grupo]}`
   })));
-  // Ordem fixa, independente de como as barras foram ordenadas
-  legenda($('leg-origem'), ORIGENS.filter(o => orig.some(x => x.id === o.id)));
+  // A cor carrega o GRUPO, não o departamento — por isso a legenda é de grupos.
+  // O nome do departamento vai escrito na barra, então a identidade nunca
+  // depende da cor.
+  legenda($('leg-origem'), GRUPOS.filter(g => orig.some(o => o.grupo === g.id)));
 
   // Empilhada por vendedora — precisa de legenda: são 5 identidades no mesmo eixo
   $('ch-origem-vend').innerHTML = VENDEDORAS.map(v => {
     const meus = m.leads.filter(l => l.vendedora === v);
     if(!meus.length) return `<div class="stack-row"><div class="bar-nome">${esc(v)}</div>
       <div class="stack"></div><div class="bar-val"><small>0</small></div></div>`;
-    const segs = ORIGENS.map(o => ({o, n: meus.filter(l => (l.origem||'desconhecida') === o.id).length}))
+    const segs = GRUPOS.map(o => ({o, n: meus.filter(l => grupoDe(l) === o.id).length}))
       .filter(x => x.n > 0);
     return `<div class="stack-row">
       <div class="bar-nome">${esc(v)}</div>
@@ -1215,7 +1281,7 @@ function renderPainel(){
       <div class="bar-val">${meus.length}</div>
     </div>`;
   }).join('');
-  legenda($('leg-origem2'), ORIGENS);
+  legenda($('leg-origem2'), GRUPOS);
 
   // Funil
   const topo = Math.max(1, m.funil[0].total);
@@ -1810,8 +1876,8 @@ function renderAutomacoes(){
 /* Roda as regras de origem sobre a base inteira. Serve para quando um padrão
    novo é adicionado — reclassifica o histórico em vez de só valer daqui pra frente. */
 async function reclassificarTudo(){
-  const alvos = todosLeads().filter(l => l.primeiraMensagem && !l.origemManual);
-  if(!alvos.length){ toast('Nenhum lead tem a primeira mensagem gravada ainda', true); return; }
+  const alvos = todosLeads().filter(l => (l.primeiraMensagem || l.nome) && !l.origemManual);
+  if(!alvos.length){ toast('Nenhum lead tem primeira mensagem ou nome gravado ainda', true); return; }
   let mudou = 0;
   const lote = db.batch();
   for(const l of alvos){
@@ -1834,7 +1900,7 @@ async function reclassificarTudo(){
    média — a fila de revisão humana. Sem isso a automação erra em silêncio. */
 function renderRevisao(){
   const duvidosos = todosLeads().filter(l =>
-    l.primeiraMensagem && !l.origemManual &&
+    (l.primeiraMensagem || l.nome) && !l.origemManual &&
     (!l.origemAuto || l.origemConfianca === 'media'));
   $('tag-revisao').textContent = `${duvidosos.length} para conferir`;
   if(!duvidosos.length){
@@ -2010,16 +2076,23 @@ const EXEMPLO_JSON = JSON.stringify({
   mensagensDia: { '2026-08-09': { recebidas: 47, enviadas: 39 } },
   leads: [
     {
-      telefone: '62991234567', nome: 'Danilo', origem: 'anuncio', campanha: 'LOAFER DUBAI',
+      telefone: '62991234567', nome: 'Danilo',
+      primeiraMensagem: 'Olá, vim do Instagram e quero saber mais informações sobre o Loafer Dubai',
       modelo: 'Loafer Dubai', cor: 'Preto', numeracao: '41',
       etapa: 'localizacao', tags: ['preco_so_audio'],
       primeiroContato: '2026-08-03', ultimaCliente: '2026-08-05', ultimaLoja: '2026-08-05',
       msgsCliente: 12, msgsLoja: 9
     },
     {
-      telefone: '62998887777', nome: 'Rafael', origem: 'organico',
+      telefone: '62998887777', nome: 'Rafael',
+      primeiraMensagem: 'Olá, sou de Goiânia e tenho interesse em saber mais sobre os sociais',
       modelo: 'Sneaker Milão', etapa: 'atendido', tags: ['sem_resposta'],
       primeiroContato: '2026-08-07', ultimaCliente: '2026-08-07', msgsCliente: 4, msgsLoja: 6
+    },
+    {
+      telefone: '62997776666', nome: 'Gregory Cliente',
+      primeiraMensagem: 'oi, tudo bem? queria ver aquele marrom de novo',
+      etapa: 'atendido', primeiroContato: '2026-08-08', msgsCliente: 3, msgsLoja: 2
     }
   ]
 }, null, 2);
@@ -2259,10 +2332,20 @@ REGRAS DE GRAVAÇÃO
 
 CLASSIFICAÇÃO AUTOMÁTICA DE ORIGEM
 
-  Mandando "primeiraMensagem", o CRM decide a origem sozinho por regra de texto.
-  As mensagens de anúncio do Meta são template fixo, então o casamento é exato —
-  não precisa de IA e não erra. Origem definida na mão na ficha nunca é sobrescrita.
-  O que a regra não conseguir classificar cai na fila de conferência, na aba Automações.
+  Mandando "primeiraMensagem", o CRM decide o DEPARTAMENTO sozinho por regra de
+  texto. Cada campanha entra com um texto próprio, então o casamento é exato —
+  não precisa de IA e não erra:
+
+    Público Frio     "sou de / estou em Goiânia..." + interesse
+    Remarketing      "vim do Instagram e quero saber mais informações sobre..."
+    Bio do Instagram "vim pelo link da bio e quero receber o catálogo"
+    Cupom 5%         "tenho 5% de desconto para realizar a minha primeira compra"
+    Cliente          o NOME do contato tem "Cliente" — ex.: "Gregory Cliente"
+
+  Mande "nome" sempre: é dele que sai a detecção de quem já é cliente, e ela
+  funciona mesmo sem a primeira mensagem.
+  Origem definida na mão na ficha nunca é sobrescrita. O que a regra não
+  conseguir classificar cai na fila de conferência, na aba Automações.
 
 COMO MARCAR VENDA
 

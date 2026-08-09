@@ -125,32 +125,54 @@ window.CRM.lembretes()     // filas de visita marcada, com o texto pronto
 
 ---
 
-## Classificação automática de origem
+## Classificação automática por departamento
 
-A origem do lead é lida da **primeira mensagem do cliente**, por regra de texto — não por
-alguém marcar nada, e sem IA.
+O departamento do lead é lido da **primeira mensagem do cliente** (e do **nome do
+contato**), por regra de texto — não por alguém marcar nada, e sem IA.
 
-O motivo é que as mensagens de anúncio do Meta são **template fixo**: chegam sempre com o
-mesmo texto. Casar padrão nisso é exato, custa zero e nunca inventa. IA num problema
-desses só adicionaria erro.
+Cada campanha entra com um texto próprio e fixo. Casar padrão nisso é exato, custa zero e
+nunca inventa. IA num problema desses só adicionaria erro.
 
-| Regra | Reconhece | Vira |
+### Os departamentos
+
+| Departamento | Grupo | Texto de entrada |
 |---|---|---|
-| `anuncio_interesse` | "quero / tenho interesse em saber mais informações" | Anúncio |
-| `anuncio_cidade` | "sou de Goiânia e quero saber mais" | Anúncio |
-| `anuncio_instagram` | "vim no Instagram e quero saber mais" | Anúncio |
-| `anuncio_modelo_caps` | modelo escrito em MAIÚSCULAS, como no banner | Anúncio |
-| `instagram_bio` | "vim do link da bio" | Instagram orgânico |
-| `instagram_perfil` | citou perfil, story, reels ou "achei vocês no insta" | Instagram orgânico |
-| `indicacao` | "me indicou", "meu amigo comprou aí" | Indicação |
+| **Público Frio** | Anúncio pago | "sou de / estou em Goiânia" + interesse |
+| **Remarketing** | Anúncio pago | "vim do Instagram e quero saber mais informações sobre…" |
+| **Anúncio s/ campanha** | Anúncio pago | Tem cara de anúncio, sem marcador de qual |
+| **Bio do Instagram** | Instagram | "vim pelo link da bio e quero receber o catálogo" |
+| **Cupom 5%** | Instagram | "tenho 5% de desconto para realizar a minha primeira compra" |
+| **Cliente** | Já é cliente | O **nome do contato** tem "Cliente" — ex.: "Gregory Cliente" |
+| **Indicação** | Orgânico | "me indicou", "meu amigo comprou aí" |
+| **Orgânico** | Orgânico | Não veio de nenhuma campanha |
+| **Não identificada** | — | Sem a primeira mensagem, não dá para dizer |
 
-São testadas de cima para baixo e a primeira que casar vence. **A ordem importa:** o
-template do anúncio veiculado no Instagram é testado *antes* das regras de Instagram
-orgânico — senão todo lead de anúncio do Instagram viraria orgânico.
+O **grupo** existe por um motivo prático: seis cores num gráfico não se distinguem. A cor
+carrega o grupo — a leitura estratégica — e o nome do departamento vem escrito ao lado.
+Identidade nunca fica só na cor.
 
-Três garantias:
+### Três decisões que valem saber
 
-- **Origem definida na mão nunca é sobrescrita.** Mexeu na ficha, trava.
+**O nome do contato vence a mensagem.** "Gregory Cliente" escrevendo por um anúncio de
+remarketing é classificado como **Cliente**, não como Remarketing. Saber que é recompra
+muda o atendimento inteiro, e vale mais do que por qual anúncio a pessoa voltou. A regra
+exige a palavra inteira — "Clientelismo Souza" não casa.
+
+**Anúncio sem campanha não vira Público Frio.** Quando o texto tem cara de anúncio mas
+falta o marcador que diz de qual campanha veio, o lead fica explicitamente em *Anúncio s/
+campanha* e cai na fila de conferência. Chutar aqui contaminaria a leitura de verba, que é
+justamente o que esses números existem para responder.
+
+**A ordem das regras importa.** Cupom antes de Bio, porque as duas terminam pedindo o
+catálogo. Remarketing e Público Frio antes do genérico. A primeira regra que casar vence.
+
+O texto do Público Frio **já teve variações** ("sou de" / "estou em", "tenho interesse" /
+"quero saber"), então a regra cobre as duas formas em vez de casar uma frase literal — se
+mudar de novo, ela continua pegando.
+
+### Garantias
+
+- **Departamento definido na mão nunca é sobrescrito.** Mexeu na ficha, trava.
 - **O que nenhuma regra classificou cai na fila de conferência** (aba Automações), junto
   com o que casou só com confiança média. A automação não erra em silêncio.
 - **`Reclassificar tudo`** roda as regras sobre a base inteira, então padrão novo vale

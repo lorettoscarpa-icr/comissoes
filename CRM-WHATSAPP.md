@@ -161,6 +161,44 @@ gestão, não de código.
 
 ---
 
+## Confiança nos dados
+
+Duas coisas que o CRM faz para não mentir em silêncio.
+
+**A dona do lead nunca é trocada pela varredura.** O telefone é a chave única, então a
+leitura de outra conta sobrescrevia o registro e o cliente mudava de carteira sozinho,
+levando comissão junto — e, com o recorte por vendedora, sumindo do *Meu dia* de uma e
+aparecendo no da outra. Agora divergência abre um **conflito** no painel de gestão, quem
+chegou primeiro continua dono, e a decisão humana trava a varredura seguinte.
+
+**O painel diz quando os dados foram atualizados, por conta.** Sem isso, cinco dias sem
+varredura davam uma tela que parecia normal. O carimbo é por vendedora porque uma conta
+varrida ontem e outra da semana passada produzem um painel coerente e falso. Passando de
+2 dias, aparece o aviso.
+
+---
+
+## Catálogo, preço e estoque
+
+O preço saiu do código para `crm_config/catalogo`:
+
+```js
+await CRM.definirCatalogo([
+  {modelo:'Loafer Dubai',  preco:349.90, estoque:true},
+  {modelo:'Slipper Ibiza', preco:289.90, estoque:false}
+])
+```
+
+Enquanto ninguém cadastrar, vale a tabela embutida no `crm.html` — mas ela tem uma
+ambiguidade real que o catálogo resolve: **um modelo cujo nome casa com duas regras recebe
+o preço da primeira**. "Bota Verona" sai por R$ 299,90 (regra dos sportfinos) e não por
+R$ 329,90 (regra das botas), porque `verona` é testado antes de `bota`. Com o catálogo
+cadastrado, o nome exato vence e a dúvida acaba.
+
+`estoque: false` marca produto que **não pode ser oferecido**, como o Slipper Ibiza.
+
+---
+
 ## Meu dia — o CRM diz o que fazer
 
 A vendedora não escolhe fila nem aba. Abre em **Meu dia**, vê uma linha por cliente na

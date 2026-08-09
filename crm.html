@@ -4,6 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Loretto Scarpa — CRM WhatsApp</title>
+<!-- Atalho na tela inicial do celular. SEM service worker de propósito: o da
+     Central de Entregas entrou em loop de recarregamento e teve que virar um
+     script de autodestruição. Sem SW, o Android ainda instala pelo menu
+     "Adicionar à tela inicial" e o iPhone instala normalmente — só não aparece
+     o convite automático, que é um preço barato perto de repetir aquele bug. -->
+<link rel="manifest" href='data:application/manifest+json,{"name":"Loretto%20Scarpa%20\u2014%20CRM","short_name":"CRM","start_url":"./crm.html","scope":"./","display":"standalone","orientation":"portrait","background_color":"#283d1a","theme_color":"#283d1a","icons":[{"src":"./icone-crm.png","sizes":"192x192","type":"image/png","purpose":"any%20maskable"}]}'>
+<link rel="apple-touch-icon" href="icone-crm.png">
+<link rel="icon" href="icone-crm.png">
+<meta name="theme-color" content="#283d1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CRM">
+<meta name="mobile-web-app-capable" content="yes">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Barlow:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -314,6 +327,8 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
     <!-- ───────── PAINEL ───────── -->
     <div class="pag ativa" id="pag-painel">
       <div id="conflitos"></div>
+      <div class="slbl">Hoje <span class="slbl-tag" id="tag-hoje">—</span></div>
+      <div id="tiles-hoje"></div>
       <div class="slbl">Resumo do mês <span class="slbl-tag" id="tag-periodo">—</span></div>
       <div class="tiles" id="tiles"></div>
 
@@ -391,6 +406,14 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <div class="card-sub">Como a carteira de cada uma se divide entre os grupos — pago, Instagram, orgânico e quem já era cliente</div>
         <div id="ch-origem-vend"></div>
         <div class="leg" id="leg-origem2"></div>
+      </div>
+
+      <div class="slbl">Demanda não atendida</div>
+      <div class="card">
+        <div class="card-tit">Numerações pedidas que a loja não tinha</div>
+        <div class="card-sub">Depois de um mês, isto é a lista de compras da reposição — feita com dado, não com intuição. Sai da varredura e de quem foi perdido por falta de estoque.</div>
+        <div class="bars" id="ch-demanda"></div>
+        <div id="demanda-nota"></div>
       </div>
 
       <div class="slbl">Funil de atendimento</div>
@@ -882,7 +905,8 @@ function leadVazio(fone){
     repescagens: [], bloquearRepescagem: false, motivoBloqueio: '',
     primeiraMensagem: '', origemAuto: '', origemConfianca: '', origemManual: false,
     lembretes: [], posVendaEnviado: false, canalVenda: '',
-    obs: '', criadoEm: new Date().toISOString(), atualizadoEm: '', atualizadoPor: ''
+    obs: '', trilha: [], numeracoesPedidas: [],
+    criadoEm: new Date().toISOString(), atualizadoEm: '', atualizadoPor: ''
   };
 }
 
@@ -1219,12 +1243,31 @@ async function carregarDados(){
   MSGS_DIA = {};
   snapMsgs.forEach(d => { MSGS_DIA[d.id] = d.data() || {}; });
   try{
-    const v = await db.collection('crm_config').doc('varredura').get();
+    const [v, c] = await Promise.all([
+      db.collection('crm_config').doc('varredura').get(),
+      db.collection('crm_config').doc('catalogo').get()
+    ]);
     VARREDURA = v.exists ? v.data() : null;
-  }catch(e){ VARREDURA = null; }
+    CATALOGO = c.exists ? (c.data().itens || null) : null;
+  }catch(e){ VARREDURA = null; CATALOGO = null; }
 }
 
+/* Campos cuja mudança entra na trilha. Não registra tudo: contador de mensagem
+   subindo a cada varredura encheria o histórico e escondia o que importa. */
+const CAMPOS_TRILHA = ['vendedora','etapa','origem','motivoPerda','canalVenda',
+                       'agendadoPara','compareceu','valorVenda','numeracao','cor','modelo'];
+
 async function salvarLead(lead){
+  const antes = LEADS[lead.telefone];
+  if(antes){
+    const mudou = CAMPOS_TRILHA
+      .filter(k => String(antes[k] ?? '') !== String(lead[k] ?? ''))
+      .map(k => ({campo:k, de: antes[k] ?? '', para: lead[k] ?? ''}));
+    if(mudou.length){
+      lead.trilha = [...(lead.trilha||[]),
+        {quando: new Date().toISOString(), por: USUARIO || 'painel', mudou}].slice(-60);
+    }
+  }
   lead.atualizadoEm  = new Date().toISOString();
   lead.atualizadoPor = USUARIO || 'painel';
   LEADS[lead.telefone] = lead;
@@ -1613,7 +1656,45 @@ function legenda(el, itens){
   ).join('');
 }
 
+/* Os números do dia. O painel mensal responde "como foi o mês"; este responde
+   "como está indo agora", que é a pergunta de quem abre de manhã. */
+function numerosDoDia(){
+  const h = hoje();
+  const todos = todosLeads();
+  const novos = todos.filter(l => String(l.primeiroContato||'').startsWith(h));
+  const vendasHoje = todos.filter(l => String(l.dataVenda||'').startsWith(h));
+  const visitasHoje = todos.filter(l => l.agendadoPara === h);
+  const esperando = todos.filter(l => !['vendido','perdido'].includes(l.etapa) && l.ultimaCliente
+                     && (!l.ultimaLoja || String(l.ultimaCliente) > String(l.ultimaLoja)));
+  let msgsHoje = 0;
+  const md = MSGS_DIA[h] || {};
+  for(const v of vendedorasVisiveis()) msgsHoje += Number((md[v]||{}).recebidas || 0);
+  return {novos: novos.length, msgsHoje,
+    vendas: vendasHoje.length,
+    faturado: vendasHoje.reduce((s,l)=>s+Number(l.valorVenda||0),0),
+    marcadas: visitasHoje.length,
+    vieram: visitasHoje.filter(l => l.compareceu === true).length,
+    esperando: esperando.length,
+    reservasVencendo: todos.filter(reservaVencendo).length};
+}
+
 function renderPainel(){
+  const d = numerosDoDia();
+  $('tag-hoje').textContent = new Date().toLocaleDateString('pt-BR', {weekday:'long', day:'2-digit', month:'long'});
+  $('tiles-hoje').innerHTML = `<div class="tiles">
+    <div class="tile"><div class="lbl">Esperando resposta</div>
+      <div class="val${d.esperando ? '' : ' verde'}">${d.esperando}</div>
+      <div class="hint">clientes sem retorno da loja</div></div>
+    <div class="tile"><div class="lbl">Leads novos hoje</div><div class="val">${d.novos}</div>
+      <div class="hint">${d.msgsHoje} mensagens recebidas</div></div>
+    <div class="tile"><div class="lbl">Visitas marcadas hoje</div><div class="val">${d.marcadas}</div>
+      <div class="hint">${d.vieram} já vieram</div></div>
+    <div class="tile"><div class="lbl">Vendas hoje</div><div class="val verde">${d.vendas}</div>
+      <div class="hint">${brl(d.faturado)}</div></div>
+    <div class="tile"><div class="lbl">Reservas vencendo</div><div class="val">${d.reservasVencendo}</div>
+      <div class="hint">pares que voltam ao estoque</div></div>
+  </div>`;
+
   const m = metricas();
   $('tag-periodo').textContent = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
 
@@ -1711,6 +1792,28 @@ function renderPainel(){
       <td class="tnum">${pct(semCanal, m.total)}%</td>
       <td class="tnum">—</td><td class="tnum">—</td>
     </tr>` : '');
+
+  // Demanda não atendida: numeração pedida e indisponível, vinda da varredura,
+  // mais quem foi dado como perdido por falta de estoque.
+  const pedidos = {};
+  for(const l of m.leads){
+    for(const n of (l.numeracoesPedidas||[])){
+      const k = String(n).trim();
+      if(k) pedidos[k] = (pedidos[k]||0) + 1;
+    }
+    if(l.motivoPerda === 'sem_estoque' && l.numeracao) {
+      const k = String(l.numeracao).trim();
+      if(k) pedidos[k] = (pedidos[k]||0) + 1;
+    }
+  }
+  const dem = Object.entries(pedidos).sort((a,b) => b[1]-a[1]).slice(0,12);
+  barras($('ch-demanda'), dem.map(([n,q]) => ({
+    nome: `Numeração ${n}`, valor: q, rotulo: q,
+    tip: `${q} cliente(s) pediram o ${n} e a loja não tinha`
+  })));
+  $('demanda-nota').innerHTML = dem.length ? '' :
+    `<div class="vazio">Nada registrado ainda. A varredura preenche <span class="mono">numeracoesPedidas</span>
+     quando o cliente pede um número que não tem, e leads perdidos por <b>sem estoque na numeração</b> entram aqui.</div>`;
 
   const orig = m.porOrigem.filter(o => o.leads > 0).sort((a,b) => b.leads - a.leads);
   barras($('ch-origem'), orig.map(o => ({
@@ -2110,6 +2213,16 @@ function abrirLead(fone){
     </div>
 
     <div class="hist">
+      <label style="display:block;font-size:9px;letter-spacing:2.2px;text-transform:uppercase;color:var(--cr3);margin-bottom:10px;">Histórico de mudanças</label>
+      ${(l.trilha||[]).length
+        ? [...l.trilha].reverse().slice(0,12).map(t=>`<div class="hist-it">
+            <b>${dataBonita(t.quando.slice(0,10))}</b> · ${esc(String(t.por).split('@')[0])} —
+            ${t.mudou.map(m=>`${esc(m.campo)}: ${esc(String(m.de)||'vazio')} → <b>${esc(String(m.para)||'vazio')}</b>`).join(' · ')}
+          </div>`).join('')
+        : '<div class="hist-it">Nada alterado ainda.</div>'}
+    </div>
+
+    <div class="hist">
       <label style="display:block;font-size:9px;letter-spacing:2.2px;text-transform:uppercase;color:var(--cr3);margin-bottom:10px;">Reserva do par</label>
       ${l.reserva
         ? `<div class="hist-it"><b>${esc([l.reserva.modelo, l.reserva.cor, l.reserva.numeracao && ('nº '+l.reserva.numeracao)].filter(Boolean).join(' · '))}</b>
@@ -2372,6 +2485,21 @@ async function registrarRepescagem(fone, texto){
    valor POR ESCRITO — o vazamento nº 1 da operação é preço respondido em áudio.
    MANTER EM DIA: se a loja reajustar, atualize aqui, senão a sugestão mente.
    Ordem importa — 'dubai' antes da lista de sportfinos. */
+/* Catálogo vindo do Firestore (crm_config/catalogo). Enquanto ninguém tiver
+   cadastrado, vale a tabela abaixo — mas o preço parar de morar no código é o
+   ponto: durante o diagnóstico foi preciso perguntar ao CEO quanto custava o
+   Sneaker Roma, e sapato sem estoque continuava sendo oferecido. */
+let CATALOGO = null;   // [{modelo, preco, estoque:true|false}]
+
+function precoCatalogo(modelo){
+  if(!CATALOGO) return null;
+  const m = normTxt(modelo);
+  if(!m) return null;
+  const hit = CATALOGO.find(x => m.includes(normTxt(x.modelo)));
+  return hit || null;
+}
+const semEstoque = modelo => { const c = precoCatalogo(modelo); return c ? c.estoque === false : false; };
+
 const PRECOS = [
   {termos:['dubai'],                                    valor:349.90},
   {termos:['hawai','hawaí','milão','milao','sneaker'],  valor:289.90},
@@ -2380,6 +2508,8 @@ const PRECOS = [
   {termos:['slide'],                                    valor:219.90}
 ];
 function precoDe(modelo){
+  const c = precoCatalogo(modelo);          // catálogo cadastrado vence
+  if(c && c.preco) return Number(c.preco);
   const m = String(modelo||'').toLowerCase();
   if(!m) return null;
   for(const p of PRECOS) if(p.termos.some(t => m.includes(t))) return p.valor;
@@ -2853,7 +2983,8 @@ const CAMPOS_ACEITOS = new Set([
   'primeiroContato','ultimaCliente','ultimaLoja','msgsCliente','msgsLoja','agendadoPara',
   'agendadoHora','compareceu','valorVenda','dataVenda','repescagens','bloquearRepescagem',
   'motivoBloqueio','obs','primeiraMensagem','origemManual','lembretes',
-  'posVendaEnviado','canalVenda','motivoPerda','primeiroContatoEm','primeiraRespostaEm','reserva'
+  'posVendaEnviado','canalVenda','motivoPerda','primeiroContatoEm','primeiraRespostaEm','reserva',
+  'numeracoesPedidas'
 ]);
 
 async function importarPayload(payload){
@@ -3032,6 +3163,15 @@ window.CRM = {
               texto: x.acao.texto ? x.acao.texto(x.lead) : null})),
   acoes:    () => ACOES.map(a => ({id:a.id, prio:a.prio, titulo:a.titulo, consomeTeto:a.consomeTeto})),
   frescor:  () => frescor(),
+  hoje:     () => numerosDoDia(),
+  catalogo: () => CATALOGO,
+  definirCatalogo: async (itens) => {
+    if(!ehGestao()) return 'Só a gestão pode alterar o catálogo';
+    if(!Array.isArray(itens)) return 'Mande uma lista: [{modelo, preco, estoque}]';
+    await db.collection('crm_config').doc('catalogo').set({itens, atualizadoEm:new Date().toISOString()});
+    CATALOGO = itens; render();
+    return `${itens.length} itens no catálogo`;
+  },
   conflitos: () => Object.values(LEADS).filter(temConflito).map(l => ({telefone:l.telefone,
               nome:l.nome, dona:l.vendedora, tambem: conflitosAbertos(l).map(c=>c.vendedora)})),
   reservas: () => todosLeads().filter(l=>l.reserva).map(l => ({telefone:l.telefone, nome:l.nome,
@@ -3101,6 +3241,7 @@ FORMATO
       "motivoPerda":     ${JSON.stringify(MOTIVOS_PERDA.map(m=>m.id))},
                                            obrigatório quando etapa = "perdido"
       "valorVenda":      349.90,
+      "numeracoesPedidas": ["43","44"],   números que ele pediu e a loja NÃO tinha
       "obs":             "texto livre"
     }]
   }
@@ -3499,6 +3640,13 @@ function render(){
 })();
 
 document.addEventListener('keydown', e => { if(e.key === 'Escape') fecharDrawer(); });
+
+/* Se algum service worker antigo do domínio ainda estiver registrado, ele sai.
+   Foi o que derrubou a Central de Entregas: SW velho servindo página velha. */
+if('serviceWorker' in navigator){
+  try{ navigator.serviceWorker.getRegistrations()
+        .then(rs => rs.forEach(r => r.unregister())).catch(()=>{}); }catch(e){}
+}
 
 /* ══════════════════ AUTENTICAÇÃO ══════════════════ */
 

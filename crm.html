@@ -264,6 +264,7 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
     <button class="aba" data-pag="repescagem" onclick="irPara('repescagem')">Repescagem<span class="aba-badge" id="bd-rep">0</span></button>
     <button class="aba" data-pag="agenda" onclick="irPara('agenda')">Agenda<span class="aba-badge" id="bd-ag">0</span></button>
     <button class="aba" data-pag="automacoes" onclick="irPara('automacoes')">Automações<span class="aba-badge" id="bd-aut">0</span></button>
+    <button class="aba" data-pag="cruzamento" onclick="irPara('cruzamento')">Cruzamento</button>
     <button class="aba" data-pag="importar" onclick="irPara('importar')">Importar</button>
   </div>
 
@@ -416,6 +417,55 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <button class="btn btn-sm" onclick="verRegras()">Ver as regras</button>
       </div>
       <div id="revisao"></div>
+    </div>
+
+    <!-- ───────── CRUZAMENTO COM A CENTRAL ───────── -->
+    <div class="pag" id="pag-cruzamento">
+      <div class="slbl">Conversa × venda de verdade
+        <span class="slbl-tag" id="tag-cruz">—</span>
+      </div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        A <b>Central de Pagamentos</b> é a fonte de verdade da venda — vem do sistema, inclui quem
+        entrou pela porta. O <b>CRM</b> é a fonte da conversa: só enxerga o que a varredura conseguiu
+        atribuir a um WhatsApp. <b>Os dois não batem, e não deveriam.</b> A diferença é a informação:
+        é a fatia do faturamento que não passou pelo WhatsApp, somada ao que a varredura deixou escapar.
+        Nada aqui escreve na Central — é só leitura.
+      </div>
+      <div id="cruz-topo"></div>
+
+      <div class="slbl">O custo em conversa de cada venda</div>
+      <div class="card">
+        <div class="card-tit">Mensagens recebidas por peça vendida</div>
+        <div class="card-sub">Quantas mensagens chegaram para cada peça que saiu. Número alto é atendimento caro — muita conversa para pouca venda.</div>
+        <div class="bars" id="ch-custo"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-tit">Por vendedora, lado a lado</div>
+        <div class="card-sub">Peças e valor vêm da Central. Leads e mensagens vêm do CRM. A última coluna é quanto do que ela vendeu o CRM conseguiu atribuir a uma conversa.</div>
+        <div class="tab-wrap"><table class="tab"><thead><tr>
+          <th>Vendedora</th><th class="tnum">Msgs recebidas</th><th class="tnum">Leads</th>
+          <th class="tnum">Peças</th><th class="tnum">Vendido</th>
+          <th class="tnum">Msgs por peça</th><th class="tnum">Atribuído ao WhatsApp</th>
+        </tr></thead><tbody id="tb-cruz"></tbody></table></div>
+      </div>
+
+      <div class="slbl">Dia a dia</div>
+      <div class="card">
+        <div class="card-tit">Mensagens e peças, por dia</div>
+        <div class="card-sub">Dia com muita mensagem e pouca peça é gargalo: ou o atendimento travou, ou o lead não estava maduro.</div>
+        <div class="tab-wrap"><table class="tab"><thead><tr>
+          <th>Dia</th><th class="tnum">Mensagens recebidas</th><th class="tnum">Peças vendidas</th><th class="tnum">Msgs por peça</th>
+        </tr></thead><tbody id="tb-dias"></tbody></table></div>
+        <div id="dias-vazio"></div>
+      </div>
+
+      <div class="slbl">Metas do mês</div>
+      <div class="card">
+        <div class="card-tit">Quanto falta e quanto ainda tem na base</div>
+        <div class="card-sub">Metas e realizado vêm da Central, por categoria e para a equipe. Ao lado, quantos leads já receberam preço e ainda não fecharam — o estoque de conversa que ainda pode virar meta batida.</div>
+        <div id="cruz-metas"></div>
+      </div>
     </div>
 
     <!-- ───────── IMPORTAR ───────── -->
@@ -572,6 +622,10 @@ const DIAS_ESFRIOU     = 2;  // dias de silêncio antes de entrar na fila
 /* ─── Estado ─── */
 let LEADS = {};        // telefone -> lead
 let MSGS_DIA = {};     // 'YYYY-MM-DD' -> { Vendedora: {recebidas, enviadas} }
+/* Espelho das coleções da Central de Pagamentos. SOMENTE LEITURA — o CRM nunca
+   escreve nelas. A Central é a fonte de verdade da venda (vem do Kigi); o CRM é
+   a fonte da conversa. Cruzar os dois é o que dá o número que nenhum tem sozinho. */
+let CENTRAL = { fechamento: null, metas: null, atingimentos: null };
 let DATA_ATUAL = new Date();
 let PAG_ATUAL = 'painel';
 let LEAD_ABERTO = null;
@@ -814,6 +868,30 @@ function podeRepescar(l){
 <script>
 /* ══════════════════ FIRESTORE ══════════════════ */
 
+/* Id dos documentos da Central: `${ano}-${mes+1}` (ex.: 2026-8). Mesmo formato
+   nas três coleções — conferido em idFech/idMetas/idAting no index.html. */
+const idCentral = () => `${DATA_ATUAL.getFullYear()}-${DATA_ATUAL.getMonth()+1}`;
+
+async function carregarCentral(){
+  const id = idCentral();
+  CENTRAL = { fechamento: null, metas: null, atingimentos: null };
+  try{
+    const [f, m, a] = await Promise.all([
+      db.collection('fechamentos').doc(id).get(),
+      db.collection('metas').doc(id).get(),
+      db.collection('atingimentos').doc(id).get()
+    ]);
+    if(f.exists) CENTRAL.fechamento  = f.data();
+    if(m.exists) CENTRAL.metas       = m.data();
+    if(a.exists) CENTRAL.atingimentos = a.data();
+  }catch(e){
+    // Sem permissão de leitura nas coleções da Central: o resto do CRM segue
+    // funcionando, só a aba de cruzamento fica indisponível.
+    console.warn('Central indisponível:', e.message);
+    CENTRAL._erro = e.message;
+  }
+}
+
 async function carregarDados(){
   const [snapLeads, snapMsgs] = await Promise.all([
     db.collection('crm_leads').get(),
@@ -838,6 +916,8 @@ const mesPrefixo = () => `${DATA_ATUAL.getFullYear()}-${String(DATA_ATUAL.getMon
 function mudarMes(n){
   DATA_ATUAL = new Date(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth() + n, 1);
   render();
+  // O fechamento da Central é mensal — trocar o mês exige reler.
+  carregarCentral().then(() => { if(PAG_ATUAL === 'cruzamento') renderCruzamento(); });
 }
 const todosLeads  = () => Object.values(LEADS);
 const leadsDoMes  = () => todosLeads().filter(l => String(l.primeiroContato||'').startsWith(mesPrefixo()));
@@ -928,6 +1008,99 @@ function metricas(){
     convVisitaVenda: pct(vendasLoja.length, visitas.length),
     vendasLoja, vendasEntrega, vendasIndef
   };
+}
+
+/* ══════════════════ CRUZAMENTO COM A CENTRAL ══════════════════
+   Duas fontes que medem coisas diferentes e por isso NÃO batem — e não deveriam:
+
+     Central (Kigi)  = tudo que a loja vendeu, inclusive quem entrou pela porta
+     CRM (WhatsApp)  = só o que a varredura conseguiu atribuir a uma conversa
+
+   A diferença entre as duas não é erro, é informação: é a fatia do faturamento
+   que NÃO passou pelo WhatsApp — somada ao que a varredura deixou escapar.
+
+   Unidade importa. A Central conta PEÇAS e VALOR; `totalVendas` lá é número de
+   linhas do arquivo, não de clientes. O CRM conta CLIENTES. Comparar "vendas"
+   com "vendas" seria comparar coisas diferentes — por isso o cruzamento é feito
+   em valor e em peças, nunca em contagem de venda. */
+
+function cruzamento(){
+  const m = metricas();
+  const f = CENTRAL.fechamento;
+  const pre = mesPrefixo();
+
+  // ── Faturamento: Central × CRM ──
+  const centralValor = f ? Number(f.totalGeralValor || 0) : null;
+  const centralPecas = f ? Number(f.totalGeralPecas || 0) : null;
+  const crmValor = m.faturado;
+  const atribuido = centralValor ? Math.min(100, Math.round(crmValor / centralValor * 100)) : null;
+
+  // ── Por vendedora: peças e valor reais × mensagens recebidas ──
+  const porVend = VENDEDORAS.map(v => {
+    const dv = f && f.result && f.result[v];
+    let pecas = 0, valor = 0;
+    if(dv) for(const [cat, o] of Object.entries(dv)){
+      if(cat.startsWith('_') || !o || typeof o !== 'object') continue;
+      pecas += Number(o.qtd || 0);
+      valor += Number(o.valor || 0);
+    }
+    const met = m.porVend.find(x => x.vendedora === v) || {recebidas:0, leads:0, vendas:0, faturado:0};
+    return {
+      vendedora: v, pecas, valor,
+      recebidas: met.recebidas, leads: met.leads,
+      crmVendas: met.vendas, crmFaturado: met.faturado,
+      // Quantas mensagens recebidas para cada peça que saiu. É o custo em
+      // conversa de cada venda — e o número que expõe quem atende muito e vende pouco.
+      msgsPorPeca: pecas > 0 ? +(met.recebidas / pecas).toFixed(1) : null,
+      atribuido: valor > 0 ? Math.min(100, Math.round(met.faturado / valor * 100)) : null
+    };
+  });
+
+  // ── Série diária: mensagens × peças ──
+  const dias = [];
+  if(f && f.result){
+    const ultimo = new Date(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()+1, 0).getDate();
+    for(let d = 1; d <= ultimo; d++){
+      const iso = `${pre}-${String(d).padStart(2,'0')}`;
+      let pecas = 0;
+      for(const v of VENDEDORAS){
+        const pd = f.result[v] && f.result[v]._porDia && f.result[v]._porDia[d];
+        if(pd) for(const [cat, q] of Object.entries(pd)) pecas += Number(q || 0);
+      }
+      const md = MSGS_DIA[iso] || {};
+      let recebidas = 0;
+      for(const v of VENDEDORAS) recebidas += Number((md[v] || {}).recebidas || 0);
+      if(pecas || recebidas) dias.push({dia: d, iso, pecas, recebidas,
+        razao: pecas > 0 ? +(recebidas / pecas).toFixed(1) : null});
+    }
+  }
+
+  // ── Metas: quanto falta e quanto ainda tem na base ──
+  // As metas da Central são por CATEGORIA e valem para a equipe, não por vendedora.
+  const metasCat = [];
+  if(CENTRAL.metas && f && f.result){
+    for(const [cat, cfg] of Object.entries(CENTRAL.metas)){
+      if(!cfg || typeof cfg !== 'object' || !('meta' in cfg)) continue;
+      let vendido = 0;
+      for(const v of VENDEDORAS){
+        const o = f.result[v] && f.result[v][cat];
+        if(o) vendido += Number(o.qtd || 0);
+      }
+      const meta = Number(cfg.meta || 0), ultra = Number(cfg.ultrameta || 0);
+      metasCat.push({cat, meta, ultra, vendido,
+        falta: Math.max(0, meta - vendido),
+        pctMeta: meta > 0 ? Math.round(vendido/meta*100) : null,
+        estado: (CENTRAL.atingimentos || {})[cat] || 'nao'});
+    }
+  }
+
+  // Leads ainda vivos: já receberam preço, não fecharam e não foram perdidos.
+  // É o estoque de conversa que ainda pode virar meta batida.
+  const quentes = todosLeads().filter(l =>
+    rankAlcancado(l) >= ETAPA_RANK.preco && !['vendido','perdido'].includes(l.etapa));
+
+  return {m, temCentral: !!f, centralValor, centralPecas, crmValor, atribuido,
+          porVend, dias, metasCat, quentes: quentes.length};
 }
 
 /* ══════════════════ GRÁFICOS ══════════════════ */
@@ -1073,6 +1246,88 @@ function renderPainel(){
 </script>
 
 <script>
+function renderCruzamento(){
+  const c = cruzamento();
+  $('tag-cruz').textContent = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
+
+  if(!c.temCentral){
+    $('cruz-topo').innerHTML = `<div class="vazio"><strong>Sem fechamento da Central neste mês</strong>
+      ${CENTRAL._erro
+        ? 'Não consegui ler as coleções da Central: <b>' + esc(CENTRAL._erro) + '</b>. Provavelmente é permissão do Firestore.'
+        : 'Suba o Excel do Kigi na Central de Pagamentos deste mês e o cruzamento aparece aqui.'}</div>`;
+    ['ch-custo','tb-cruz','tb-dias','cruz-metas'].forEach(id => $(id).innerHTML = '');
+    return;
+  }
+
+  const naoWhats = Math.max(0, c.centralValor - c.crmValor);
+  $('cruz-topo').innerHTML = `
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Faturado (Central)</div><div class="val">${brl(c.centralValor).replace('R$ ','')}</div>
+        <div class="hint">${c.centralPecas} peças · fonte de verdade</div></div>
+      <div class="tile"><div class="lbl">Atribuído ao WhatsApp</div><div class="val verde">${c.atribuido}%</div>
+        <div class="hint">${brl(c.crmValor)} rastreados no CRM</div></div>
+      <div class="tile"><div class="lbl">Fora do WhatsApp</div><div class="val">${brl(naoWhats).replace('R$ ','')}</div>
+        <div class="hint">porta da loja ou varredura incompleta</div></div>
+      <div class="tile"><div class="lbl">Leads ainda vivos</div><div class="val">${c.quentes}</div>
+        <div class="hint">já receberam preço e não fecharam</div></div>
+    </div>
+    <div class="doc-nota" style="margin:14px 0 0;">
+      <b>Como ler os ${c.atribuido}%:</b> é o piso, não o número exato. Só entra aqui a venda que a
+      varredura conseguiu ligar a uma conversa. Se a varredura não rodou no mês, esse número desaba
+      sem que a loja tenha vendido menos pelo WhatsApp.
+    </div>`;
+
+  barras($('ch-custo'), c.porVend.filter(v => v.msgsPorPeca !== null).map(v => ({
+    nome: v.vendedora, valor: v.msgsPorPeca, rotulo: v.msgsPorPeca,
+    tip: `${v.vendedora}: ${v.recebidas} mensagens para ${v.pecas} peças`
+  })));
+
+  $('tb-cruz').innerHTML = c.porVend.map(v => `<tr>
+      <td class="t-nome">${esc(v.vendedora)}</td>
+      <td class="tnum">${v.recebidas}</td>
+      <td class="tnum">${v.leads}</td>
+      <td class="tnum">${v.pecas}</td>
+      <td class="tnum">${brl(v.valor)}</td>
+      <td class="tnum">${v.msgsPorPeca ?? '—'}</td>
+      <td class="tnum">${v.atribuido !== null ? v.atribuido + '%' : '—'}</td>
+    </tr>`).join('');
+
+  $('tb-dias').innerHTML = c.dias.map(d => `<tr>
+      <td>${String(d.dia).padStart(2,'0')}/${String(DATA_ATUAL.getMonth()+1).padStart(2,'0')}
+        <span class="t-fone">${DIAS_SEM[new Date(d.iso+'T12:00:00').getDay()]||''}</span></td>
+      <td class="tnum">${d.recebidas || '—'}</td>
+      <td class="tnum">${d.pecas || '—'}</td>
+      <td class="tnum">${d.razao ?? '—'}</td>
+    </tr>`).join('');
+  $('dias-vazio').innerHTML = c.dias.length ? '' :
+    `<div class="card-sub" style="margin-top:14px;">O fechamento deste mês não trouxe a data das vendas,
+      então não dá para montar o dia a dia. Isso depende da coluna de data no arquivo do Kigi.</div>`;
+
+  $('cruz-metas').innerHTML = c.metasCat.length
+    ? `<div class="tab-wrap"><table class="tab"><thead><tr>
+        <th>Categoria</th><th class="tnum">Meta</th><th class="tnum">Vendido</th>
+        <th class="tnum">Falta</th><th class="tnum">%</th><th>Estado</th>
+      </tr></thead><tbody>
+      ${c.metasCat.map(x => `<tr>
+        <td class="t-nome">${esc(NOME_CAT_CRM[x.cat] || x.cat)}</td>
+        <td class="tnum">${x.meta || '—'}</td>
+        <td class="tnum">${x.vendido}</td>
+        <td class="tnum">${x.falta || '—'}</td>
+        <td class="tnum">${x.pctMeta !== null ? x.pctMeta + '%' : '—'}</td>
+        <td><span class="pill ${x.estado==='ultra'?'pill-ok':x.estado==='meta'?'pill-am':''}">${
+          x.estado==='ultra'?'Ultrameta':x.estado==='meta'?'Meta batida':'Não bateu'}</span></td>
+      </tr>`).join('')}
+      </tbody></table></div>`
+    : `<div class="vazio">As metas deste mês ainda não foram configuradas na Central.</div>`;
+}
+
+/* Nomes das categorias — espelham os da Central de Pagamentos. */
+const NOME_CAT_CRM = {
+  sapatos:'Sapatos', sapatos_encomenda:'Sapatos de Encomenda', cintos:'Cintos',
+  carteiras:'Carteiras', limpeza:'Produtos de Limpeza', prendedores:'Prendedores de Camisa',
+  protetores:'Protetores de Sapato', meias:'Meias'
+};
+
 /* ══════════════════ LEADS ══════════════════ */
 
 function preencherFiltros(){
@@ -1933,6 +2188,7 @@ window.CRM = {
               tentativas: tentativas(l), sugestao: sugestaoTexto(l, f.id)
             }))})).filter(f => f.clientes.length),
   resumo:   () => metricas(),
+  cruzamento: () => cruzamento(),
   classificar: (texto) => classificarOrigem(texto),
   regras:   () => REGRAS_ORIGEM.map(r => ({id:r.id, origem:r.origem, confianca:r.confianca, reconhece:r.desc})),
   marcadoresPosVenda: () => MARCADORES_POSVENDA,
@@ -2045,6 +2301,7 @@ function render(){
     if(PAG_ATUAL === 'repescagem') renderRepescagem();
     if(PAG_ATUAL === 'agenda')     renderAgenda();
     if(PAG_ATUAL === 'automacoes'){ renderAutomacoes(); renderRevisao(); }
+    if(PAG_ATUAL === 'cruzamento') renderCruzamento();
     // badges continuam certos mesmo fora da aba
     $('bd-leads').textContent = leadsDoMes().length;
     $('bd-rep').textContent   = contarRepescagem();
@@ -2115,7 +2372,7 @@ auth.onAuthStateChanged(async user => {
   $('doc-schema').textContent = DOC_SCHEMA;
   preencherFiltros();
   try{
-    await carregarDados();
+    await Promise.all([carregarDados(), carregarCentral()]);
   }catch(e){
     toast('Não consegui ler o Firestore: ' + e.message, true);
   }

@@ -204,6 +204,47 @@ quem tem visita→venda baixa precisa olhar estoque e atendimento na loja.
 
 ---
 
+## Cruzamento com a Central de Pagamentos
+
+Aba **Cruzamento**. Lê três coleções da Central — `fechamentos`, `metas` e `atingimentos` —
+**somente leitura**. O CRM nunca escreve nelas.
+
+### Por que os dois números não batem (e não deveriam)
+
+| Fonte | Mede |
+|---|---|
+| **Central** (vem do Kigi) | Tudo que a loja vendeu, inclusive quem entrou pela porta |
+| **CRM** (vem do WhatsApp) | Só o que a varredura conseguiu atribuir a uma conversa |
+
+A diferença **é a informação**: é a fatia do faturamento que não passou pelo WhatsApp,
+somada ao que a varredura deixou escapar.
+
+> **Cuidado com a unidade.** A Central conta **peças** e **valor**; o `totalVendas` de lá é
+> número de linhas do arquivo, não de clientes. O CRM conta **clientes**. Por isso o
+> cruzamento é feito em valor e em peças — nunca em "quantidade de vendas", que significa
+> coisas diferentes nos dois lados.
+
+### O que a aba mostra
+
+- **Atribuído ao WhatsApp** — quanto do faturamento real o CRM conseguiu ligar a uma
+  conversa. É um **piso**, não o número exato: se a varredura não rodou, ele desaba sem que
+  a loja tenha vendido menos pelo WhatsApp.
+- **Mensagens recebidas por peça vendida**, por vendedora — o custo em conversa de cada
+  venda. Número alto é atendimento caro: muita conversa para pouca peça.
+- **Dia a dia** — mensagens recebidas × peças vendidas. Dia com muita mensagem e pouca peça
+  é gargalo. Usa o `_porDia` que a Central já grava por vendedora e categoria.
+- **Metas do mês** — meta, realizado e quanto falta, por categoria, ao lado de quantos leads
+  já receberam preço e ainda não fecharam. É o estoque de conversa que ainda pode virar meta
+  batida.
+
+### Se a aba aparecer vazia
+
+Ou não existe fechamento da Central no mês (é só subir o Excel do Kigi lá), ou as regras do
+Firestore não liberam leitura de `fechamentos`, `metas` e `atingimentos` para este usuário —
+a aba diz qual dos dois é.
+
+---
+
 ## Automações de visita marcada
 
 Três filas na aba **Automações**, com o texto pronto e link direto pro WhatsApp:

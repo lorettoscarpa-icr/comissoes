@@ -163,6 +163,8 @@ main{max-width:1280px;margin:0 auto;padding:32px 24px 90px;}
 .fila-cont{font-family:'Cormorant Garamond',serif;font-size:26px;color:var(--ou);line-height:1;}
 .rep-item{padding:16px 20px;border-bottom:1px solid var(--oud2);display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start;}
 .rep-item:last-child{border-bottom:none;}
+.rep-item.aberto{opacity:.5;background:rgba(108,191,108,.04);}
+.rep-item.aberto .rep-sug{border-left-color:rgba(108,191,108,.5);}
 .rep-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:7px;}
 .rep-nome{font-size:14px;color:var(--cr);letter-spacing:.4px;font-weight:500;}
 .rep-meta{font-size:10px;letter-spacing:.8px;color:var(--cr3);margin-bottom:10px;}
@@ -253,6 +255,7 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <div class="mes-atual" id="mes-atual">—</div>
         <button class="mes-nav" onclick="mudarMes(1)">›</button>
       </div>
+      <span class="h-email" id="h-quem" style="color:var(--ou2);letter-spacing:1.5px;"></span>
       <span class="h-email" id="h-email"></span>
       <button class="btn btn-sm" onclick="sair()">Sair</button>
     </div>
@@ -269,6 +272,16 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
   </div>
 
   <main>
+    <div id="aviso-papel" style="display:none;" class="doc-nota">
+      <div class="card" style="border-left:3px solid var(--am);margin-bottom:24px;">
+        <div class="card-tit">Este login não está configurado</div>
+        <div class="card-sub" style="margin:0;">Entrou como <b>gestão</b> e está vendo a loja inteira.
+        Para que uma vendedora veja só a carteira dela, cadastre o e-mail em
+        <span class="mono">crm_config/usuarios</span> — ou rode no console:
+        <span class="mono">CRM.definirUsuario('email@loja.com', 'Jhennifer')</span></div>
+      </div>
+    </div>
+
     <!-- ───────── PAINEL ───────── -->
     <div class="pag ativa" id="pag-painel">
       <div class="slbl">Resumo do mês <span class="slbl-tag" id="tag-periodo">—</span></div>
@@ -708,7 +721,18 @@ function chaveFone(raw){
 let DATA_ATUAL = new Date();
 let PAG_ATUAL = 'painel';
 let LEAD_ABERTO = null;
-let USUARIO = '';
+/* Quem foi aberto no WhatsApp NESTA sessão. Serve para a linha continuar na
+   tela depois do clique — senão ela some na hora e a vendedora fica sem como
+   dizer "abri mas não mandei". */
+const ABERTOS_SESSAO = new Set();
+let USUARIO = '';   // e-mail logado
+let EU = null;      // {vendedora, papel, fonte} — quem é e o que pode ver
+
+/* Papel decide o RECORTE, não a segurança. Filtro no navegador é conforto de
+   uso: quem souber abrir o console vê tudo. Quem barra de verdade são as regras
+   do Firestore — o snippet está no CRM-WHATSAPP.md. */
+const ehGestao      = () => !EU || EU.papel === 'gestao';
+const minhaVendedora = () => (EU && EU.papel === 'vendedora' && EU.vendedora) ? EU.vendedora : '';
 
 /* ══════════════════ UTILIDADES ══════════════════ */
 const $  = id => document.getElementById(id);
@@ -917,9 +941,21 @@ function mesclarLead(atual, novo){
     if(Array.isArray(v) && v.length === 0) continue;
     if(k === 'tags'){ r.tags = [...new Set([...(atual.tags||[]), ...v])]; continue; }
     if(k === 'repescagens'){
-      // dedup por data — reimportar a mesma varredura não infla o contador
-      const vistas = new Set((atual.repescagens||[]).map(x=>x.data));
-      r.repescagens = [...(atual.repescagens||[]), ...v.filter(x=>x && !vistas.has(x.data))];
+      // Mescla POR DATA: reimportar não infla o contador, e a varredura consegue
+      // voltar num registro já existente para confirmar se a mensagem saiu mesmo.
+      const porData = {};
+      for(const x of (atual.repescagens||[])) if(x && x.data) porData[x.data] = x;
+      for(const x of v) if(x && x.data) porData[x.data] = {...(porData[x.data]||{}), ...x};
+      r.repescagens = Object.values(porData).sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+      continue;
+    }
+    if(k === 'lembretes'){
+      // Mescla por tipo+data, mesmo motivo.
+      const porCh = {};
+      const ch = x => `${x.tipo}|${x.data}`;
+      for(const x of (atual.lembretes||[])) if(x && x.tipo) porCh[ch(x)] = x;
+      for(const x of v) if(x && x.tipo) porCh[ch(x)] = {...(porCh[ch(x)]||{}), ...x};
+      r.lembretes = Object.values(porCh);
       continue;
     }
     if(k === 'etapa'){
@@ -957,8 +993,17 @@ function mesclarLead(atual, novo){
 /* Até onde este lead chegou — usado pelo funil e pelas filas. */
 const rankAlcancado = l => Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK[l.etapa] ?? -1);
 
-const tentativas   = l => (l.repescagens||[]).length;
-const ultimaRepesca = l => (l.repescagens||[]).map(r=>r.data).sort().slice(-1)[0] || '';
+/* Estados de uma repescagem:
+     aberto      — a vendedora abriu o WhatsApp com o texto pronto. CONTA no teto.
+     confirmado  — a varredura viu a mensagem na conversa. Conta.
+     nao_enviado — abriu e não mandou. NÃO conta.
+   Contar o 'aberto' é escolha consciente: erra para o lado de não incomodar o
+   cliente duas vezes, que é o erro barato. O contrário mandaria mensagem
+   repetida — que é exatamente a regra que este CRM existe para garantir. */
+const repValida  = r => r && r.estado !== 'nao_enviado';
+const tentativas = l => (l.repescagens||[]).filter(repValida).length;
+const ultimaRepesca = l => (l.repescagens||[]).filter(repValida).map(r=>r.data).sort().slice(-1)[0] || '';
+const abertoHoje = l => (l.repescagens||[]).some(r => r.data === hoje() && repValida(r));
 
 /* Pode repescar? Espelha as regras do playbook:
    teto de 3, uma por dia, e as situações que bloqueiam. */
@@ -982,6 +1027,30 @@ function podeRepescar(l){
 /* Id dos documentos da Central: `${ano}-${mes+1}` (ex.: 2026-8). Mesmo formato
    nas três coleções — conferido em idFech/idMetas/idAting no index.html. */
 const idCentral = () => `${DATA_ATUAL.getFullYear()}-${DATA_ATUAL.getMonth()+1}`;
+
+/* Descobre quem está logado, em três degraus:
+     1. o que estiver escrito em crm_config/usuarios
+     2. o e-mail parecer com o nome de uma vendedora (jhennifer@...)
+     3. sem nada disso, entra como gestão — para não trancar a conta da Larissa,
+        que já usava o painel antes deste controle existir. A tela avisa. */
+async function carregarUsuario(email){
+  let mapa = {};
+  try{
+    const d = await db.collection('crm_config').doc('usuarios').get();
+    if(d.exists) mapa = d.data() || {};
+  }catch(e){ console.warn('crm_config/usuarios indisponível:', e.message); }
+
+  const cfg = mapa[email] || mapa[String(email).toLowerCase()];
+  if(cfg && cfg.vendedora && VENDEDORAS.includes(cfg.vendedora))
+    return {vendedora: cfg.vendedora, papel: cfg.papel || 'vendedora', fonte:'config'};
+  if(cfg && cfg.papel === 'gestao') return {vendedora:'', papel:'gestao', fonte:'config'};
+
+  const local = normTxt(String(email||'').split('@')[0]);
+  const v = VENDEDORAS.find(x => local.includes(normTxt(x)));
+  if(v) return {vendedora: v, papel:'vendedora', fonte:'email'};
+
+  return {vendedora:'', papel:'gestao', fonte:'padrao'};
+}
 
 async function carregarCentral(){
   const id = idCentral();
@@ -1051,7 +1120,14 @@ function mudarMes(n){
   // O fechamento da Central é mensal — trocar o mês exige reler.
   carregarCentral().then(() => { if(PAG_ATUAL === 'cruzamento') renderCruzamento(); });
 }
-const todosLeads  = () => Object.values(LEADS);
+/* Recorte único do sistema: painel, filas, agenda e automações leem daqui, então
+   escopar neste ponto é o que faz a vendedora ver só a carteira dela em toda parte.
+   Espalhar o filtro por cada tela deixaria buraco em alguma. */
+const todosLeads  = () => {
+  const v = minhaVendedora();
+  const arr = Object.values(LEADS);
+  return v ? arr.filter(l => l.vendedora === v) : arr;
+};
 const leadsDoMes  = () => todosLeads().filter(l => String(l.primeiroContato||'').startsWith(mesPrefixo()));
 
 /* ══════════════════ MÉTRICAS ══════════════════ */
@@ -1661,6 +1737,32 @@ const NOME_CAT_CRM = {
 
 /* ══════════════════ LEADS ══════════════════ */
 
+/* Aplica o papel: trava os seletores de vendedora, esconde o que é de gestão
+   e diz na tela de quem é a carteira que está aberta. */
+function aplicarPapel(){
+  const eu = minhaVendedora();
+  $('h-quem').textContent = eu ? `${eu} · carteira` : 'Gestão · visão da loja';
+
+  // Cruzamento mostra o faturamento da loja inteira; Importar é operação técnica.
+  for(const pag of ['cruzamento','importar']){
+    const aba = document.querySelector(`.aba[data-pag="${pag}"]`);
+    if(aba) aba.style.display = ehGestao() ? '' : 'none';
+  }
+  if(!ehGestao() && ['cruzamento','importar'].includes(PAG_ATUAL)) irPara('painel');
+
+  if(eu){
+    for(const id of ['f-vend','f-rep-vend','f-ag-vend','f-aut-vend']){
+      const sel = $(id);
+      if(!sel) continue;
+      sel.value = eu;
+      sel.disabled = true;
+      sel.title = 'Você vê a sua carteira';
+    }
+  }
+  const aviso = $('aviso-papel');
+  if(aviso) aviso.style.display = (EU && EU.fonte === 'padrao') ? 'block' : 'none';
+}
+
 function preencherFiltros(){
   const opts = (arr, todos) => `<option value="">${todos}</option>` +
     arr.map(x => `<option value="${esc(x.id ?? x)}">${esc(x.nome ?? x)}</option>`).join('');
@@ -1670,6 +1772,7 @@ function preencherFiltros(){
   $('f-rep-vend').innerHTML = opts(VENDEDORAS, 'Todas as vendedoras');
   $('f-ag-vend').innerHTML  = opts(VENDEDORAS, 'Todas as vendedoras');
   $('f-aut-vend').innerHTML = opts(VENDEDORAS, 'Todas as vendedoras');
+  aplicarPapel();
 }
 
 function leadsFiltrados(){
@@ -1875,6 +1978,63 @@ async function novoLead(){
   abrirLead(fone);
 }
 
+/* Registra no MOMENTO DO CLIQUE, não depois. A vendedora abre o WhatsApp, manda
+   e não volta para o CRM — esperar que ela volte para marcar era o caminho certo
+   para o cliente receber a mesma mensagem dois dias seguidos. */
+async function marcarAberto(fone, fila){
+  const l = LEADS[fone];
+  if(!l) return;
+  ABERTOS_SESSAO.add(fone);
+  if(abertoHoje(l)){ render(); return; }   // já registrado hoje, não duplica
+  const novo = {...l, repescagens: [...(l.repescagens||[]),
+    {data: hoje(), texto: fila || '', por: USUARIO || 'painel', estado: 'aberto'}]};
+  try{
+    await salvarLead(novo);
+    toast(`Repescagem ${tentativas(novo)} de ${MAX_REPESCAGENS} registrada — se não mandou, use "não enviei"`);
+    render();
+  }catch(e){ toast('Não consegui registrar: ' + e.message, true); }
+}
+
+async function naoEnviei(fone){
+  const l = LEADS[fone];
+  if(!l) return;
+  const novo = {...l, repescagens: (l.repescagens||[])
+    .map(r => r.data === hoje() ? {...r, estado:'nao_enviado'} : r)};
+  try{
+    await salvarLead(novo);
+    ABERTOS_SESSAO.delete(fone);
+    toast('Desfeito — volta para a fila');
+    render();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+async function marcarLembreteAberto(fone, tipo){
+  const l = LEADS[fone];
+  if(!l) return;
+  ABERTOS_SESSAO.add(fone + '|' + tipo);
+  if(jaRecebeuLembrete(l, tipo)){ render(); return; }
+  const novo = {...l, lembretes: [...(l.lembretes||[]),
+    {tipo, data: hoje(), por: USUARIO || 'painel', estado:'aberto'}]};
+  try{
+    await salvarLead(novo);
+    toast('Lembrete registrado — não sai de novo para este cliente');
+    render();
+  }catch(e){ toast('Não consegui registrar: ' + e.message, true); }
+}
+
+async function naoEnvieiLembrete(fone, tipo){
+  const l = LEADS[fone];
+  if(!l) return;
+  const novo = {...l, lembretes: (l.lembretes||[])
+    .map(x => (x.tipo === tipo && x.data === hoje()) ? {...x, estado:'nao_enviado'} : x)};
+  try{
+    await salvarLead(novo);
+    ABERTOS_SESSAO.delete(fone + '|' + tipo);
+    toast('Desfeito — volta para a fila');
+    render();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
 async function registrarRepescagem(fone, texto){
   const l = LEADS[fone];
   if(!l) return;
@@ -1952,7 +2112,8 @@ function montarFilas(vendFiltro){
     const itens = todosLeads().filter(l => {
       if(usados.has(l.telefone)) return false;
       if(vendFiltro && l.vendedora !== vendFiltro) return false;
-      if(!podeRepescar(l).ok) return false;
+      // Aberto agora continua na fila, apagado, para dar chance de desfazer
+      if(!podeRepescar(l).ok && !ABERTOS_SESSAO.has(l.telefone)) return false;
       if(!f.filtro(l)) return false;
       usados.add(l.telefone);
       return true;
@@ -2053,7 +2214,8 @@ const AUTOMACOES = [
   }
 ];
 
-const jaRecebeuLembrete = (l, tipo) => (l.lembretes||[]).some(x => x && x.tipo === tipo);
+const jaRecebeuLembrete = (l, tipo) =>
+  (l.lembretes||[]).some(x => x && x.tipo === tipo && x.estado !== 'nao_enviado');
 
 function montarAutomacoes(vendFiltro){
   const d = {
@@ -2066,7 +2228,7 @@ function montarAutomacoes(vendFiltro){
       if(!l.agendadoPara) return false;
       if(l.compareceu === true || ['vendido','perdido'].includes(l.etapa)) return false;
       if((l.tags||[]).includes('nao_cliente')) return false;   // única trava que vale aqui
-      if(jaRecebeuLembrete(l, a.id)) return false;             // cada lembrete sai uma vez só
+      if(jaRecebeuLembrete(l, a.id) && !ABERTOS_SESSAO.has(l.telefone + '|' + a.id)) return false;
       return a.filtro(l, d);
     }).sort((x,y) => String(x.agendadoPara).localeCompare(String(y.agendadoPara)));
     return {...a, itens};
@@ -2116,11 +2278,12 @@ function renderAutomacoes(){
         <div class="fila-cont">${a.itens.length}</div>
       </div>
       ${a.itens.map(l => `
-        <div class="rep-item">
+        <div class="rep-item ${jaRecebeuLembrete(l, a.id) ? 'aberto' : ''}">
           <div>
             <div class="rep-topo">
               <span class="rep-nome">${esc(l.nome || foneBonito(l.telefone))}</span>
               <span class="pill">${esc(l.vendedora)}</span>
+              ${jaRecebeuLembrete(l, a.id) ? '<span class="pill pill-ok">Aberto agora</span>' : ''}
               <span class="pill pill-am">${dataBonita(l.agendadoPara)}${l.agendadoHora ? ' às ' + esc(l.agendadoHora) : ''}</span>
             </div>
             <div class="rep-meta">
@@ -2130,8 +2293,11 @@ function renderAutomacoes(){
             <div class="rep-sug">${esc(a.texto(l))}</div>
           </div>
           <div class="rep-acoes">
-            <a class="btn btn-sm" href="https://wa.me/${esc(l.telefone)}?text=${encodeURIComponent(a.texto(l))}" target="_blank" rel="noopener">Abrir no WhatsApp</a>
-            <button class="btn btn-sm btn-ok" onclick="registrarLembrete('${esc(l.telefone)}','${esc(a.id)}')">Marcar como enviado</button>
+            ${jaRecebeuLembrete(l, a.id)
+              ? `<button class="btn btn-sm btn-er" onclick="naoEnvieiLembrete('${esc(l.telefone)}','${esc(a.id)}')">Não enviei</button>`
+              : `<a class="btn btn-sm" href="https://wa.me/${esc(l.telefone)}?text=${encodeURIComponent(a.texto(l))}"
+                    target="_blank" rel="noopener"
+                    onclick="marcarLembreteAberto('${esc(l.telefone)}','${esc(a.id)}')">Abrir no WhatsApp</a>`}
             <button class="btn btn-sm" onclick="abrirLead('${esc(l.telefone)}')">Abrir ficha</button>
           </div>
         </div>`).join('')}
@@ -2208,11 +2374,12 @@ function renderRepescagem(){
         <div class="fila-cont">${f.itens.length}</div>
       </div>
       ${f.itens.map(l => `
-        <div class="rep-item">
+        <div class="rep-item ${abertoHoje(l) ? 'aberto' : ''}">
           <div>
             <div class="rep-topo">
               <span class="rep-nome">${esc(l.nome || foneBonito(l.telefone))}</span>
               <span class="pill">${esc(l.vendedora)}</span>
+              ${abertoHoje(l) ? '<span class="pill pill-ok">Aberto agora</span>' : ''}
               <span class="pill"><span class="pill-dot" style="background:${ORIGEM_COR[l.origem]||'var(--o5)'}"></span>${esc(ORIGEM_NOME[l.origem]||'—')}</span>
               ${tentativas(l) ? `<span class="pill pill-am">${tentativas(l)}ª tentativa foi ${dataBonita(ultimaRepesca(l))}</span>` : ''}
             </div>
@@ -2224,8 +2391,11 @@ function renderRepescagem(){
             <div class="rep-sug">${esc(sugestaoTexto(l, f.id))}</div>
           </div>
           <div class="rep-acoes">
-            <a class="btn btn-sm" href="https://wa.me/${esc(l.telefone)}?text=${encodeURIComponent(sugestaoTexto(l, f.id))}" target="_blank" rel="noopener">Abrir no WhatsApp</a>
-            <button class="btn btn-sm btn-ok" onclick="registrarRepescagem('${esc(l.telefone)}','${esc(f.nome)}')">Marcar como repescado</button>
+            ${abertoHoje(l)
+              ? `<button class="btn btn-sm btn-er" onclick="naoEnviei('${esc(l.telefone)}')">Não enviei</button>`
+              : `<a class="btn btn-sm" href="https://wa.me/${esc(l.telefone)}?text=${encodeURIComponent(sugestaoTexto(l, f.id))}"
+                    target="_blank" rel="noopener"
+                    onclick="marcarAberto('${esc(l.telefone)}','${esc(f.nome)}')">Abrir no WhatsApp</a>`}
             <button class="btn btn-sm" onclick="abrirLead('${esc(l.telefone)}')">Abrir ficha</button>
           </div>
         </div>`).join('')}
@@ -2528,6 +2698,14 @@ window.CRM = {
   resumo:   () => metricas(),
   cruzamento: () => cruzamento(),
   canais:   () => metricas().porCanal,
+  quemSouEu: () => EU,
+  definirUsuario: async (email, vendedora, papel) => {
+    if(!ehGestao()) return 'Só a gestão pode alterar usuários';
+    if(vendedora && !VENDEDORAS.includes(vendedora)) return `Vendedora inválida. Use: ${VENDEDORAS.join(', ')}`;
+    await db.collection('crm_config').doc('usuarios').set(
+      {[email]: {vendedora: vendedora || '', papel: papel || (vendedora ? 'vendedora' : 'gestao')}}, {merge:true});
+    return `${email} → ${vendedora || 'gestão'}`;
+  },
   entregas: () => cruzarEntregas(),
   classificar: (texto) => classificarOrigem(texto),
   regras:   () => REGRAS_ORIGEM.map(r => ({id:r.id, origem:r.origem, confianca:r.confianca, reconhece:r.desc})),
@@ -2593,7 +2771,20 @@ REGRAS DE GRAVAÇÃO
   · "etapa" nunca anda para trás numa importação — só 'perdido' pode.
     O painel guarda a etapa mais avançada já alcançada, para o funil não mentir.
   · "msgsCliente"/"msgsLoja" ficam com o MAIOR valor entre o salvo e o enviado.
-  · "repescagens" são deduplicadas por data — reimportar não infla o contador.
+  · "repescagens" são mescladas POR DATA — reimportar não infla o contador, e você
+    consegue voltar num registro já existente para confirmar se a mensagem saiu.
+
+RECONCILIAR O QUE FOI ABERTO MAS TALVEZ NÃO ENVIADO
+
+  Quando a vendedora clica em "Abrir no WhatsApp", o CRM grava a repescagem com
+  estado "aberto" na hora — sem esperar que ela volte para confirmar. Na varredura,
+  olhe a conversa naquela data e devolva o veredito:
+
+    {"repescagens":[{"data":"2026-08-09","estado":"confirmado"}]}    a mensagem saiu
+    {"repescagens":[{"data":"2026-08-09","estado":"nao_enviado"}]}   não saiu
+
+  "nao_enviado" NÃO conta no teto de 3 e devolve o cliente para a fila.
+  Mesma coisa para "lembretes", que são mesclados por tipo + data.
   · Estas situações BLOQUEIAM repescagem automaticamente:
     ${TAGS.filter(t=>t.bloqueia).map(t=>t.id).join(', ')}
 
@@ -2716,6 +2907,7 @@ auth.onAuthStateChanged(async user => {
     return;
   }
   USUARIO = user.email || 'painel';
+  EU = await carregarUsuario(USUARIO);
   $('tela-login').classList.remove('show');
   $('tela-app').style.display = 'block';
   $('h-email').textContent = USUARIO;

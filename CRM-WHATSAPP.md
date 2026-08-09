@@ -125,6 +125,72 @@ window.CRM.lembretes()     // filas de visita marcada, com o texto pronto
 
 ---
 
+## Quem entra e o que cada uma vê
+
+Cada vendedora tem o **próprio login**. O CRM descobre quem é em três degraus:
+
+1. o que estiver escrito em `crm_config/usuarios`;
+2. o e-mail parecer com o nome de uma vendedora (`jhennifer.cunha@…`);
+3. sem nada disso, entra como **gestão** e a tela avisa que falta configurar — assim a
+   conta que já usava o painel não trava de um dia para o outro.
+
+Para cadastrar, no console da aba do CRM (logada como gestão):
+
+```js
+await CRM.definirUsuario('michelly@loretto.com', 'Michelly')
+await CRM.definirUsuario('larissa@loretto.com', '', 'gestao')
+```
+
+| Papel | Vê |
+|---|---|
+| **Vendedora** | Só a carteira dela, em todas as telas. Sem Cruzamento (faturamento da loja) e sem Importar |
+| **Gestão** | Tudo |
+
+O recorte é feito num único ponto — a função que lista os leads — para não sobrar tela
+sem filtro. Trocar o padrão (deixar a vendedora ver o comparativo das quatro) é decisão de
+gestão, não de código.
+
+> **Isto é conforto de uso, não segurança.** Filtro no navegador não barra quem abrir o
+> console. Quem barra de verdade são as regras do Firestore:
+>
+> ```
+> match /crm_leads/{tel} {
+>   allow read, write: if request.auth != null;   // troque por uma checagem de carteira
+> }                                                // quando cada vendedora tiver login
+> ```
+
+---
+
+## Repescagem sem mandar duas vezes
+
+Quando a vendedora clica em **Abrir no WhatsApp**, o CRM grava a repescagem **na hora**,
+com estado `aberto` — sem esperar que ela volte para confirmar.
+
+O motivo é prático: ela abre o WhatsApp, manda, atende o próximo cliente e não volta. Um
+sistema que depende desse retorno acha que a mensagem não saiu e oferece o mesmo cliente
+de novo amanhã — **o cliente recebe duas vezes**, quebrando em silêncio a regra de uma por
+dia que o CRM existe para garantir.
+
+| Estado | Conta no teto de 3? |
+|---|---|
+| `aberto` — clicou e abriu o WhatsApp | **Sim** |
+| `confirmado` — a varredura viu a mensagem na conversa | Sim |
+| `nao_enviado` — abriu e não mandou | Não, volta para a fila |
+
+Contar o `aberto` erra de propósito para o lado de **não incomodar o cliente**, que é o
+erro barato. A linha continua na tela, apagada, com o botão **Não enviei** — para o caso de
+ela abrir e desistir.
+
+A varredura reconcilia depois, devolvendo o veredito por data:
+
+```json
+{"repescagens": [{"data": "2026-08-09", "estado": "confirmado"}]}
+```
+
+Os lembretes de visita funcionam igual, mesclados por tipo e data.
+
+---
+
 ## Classificação automática por departamento
 
 O departamento do lead é lido da **primeira mensagem do cliente** (e do **nome do

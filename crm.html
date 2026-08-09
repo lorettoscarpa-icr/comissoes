@@ -309,6 +309,14 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
 
       <div class="slbl">De onde vieram os clientes</div>
       <div class="card">
+        <div class="card-tit">Os quatro canais</div>
+        <div class="card-sub">Quantos leads cada canal trouxe e quanto cada um converteu em venda. É a leitura que diz onde a verba rende e o que a loja ganha de graça.</div>
+        <div class="tab-wrap"><table class="tab"><thead><tr>
+          <th>Canal</th><th>O que entra</th><th class="tnum">Leads</th>
+          <th class="tnum">% do total</th><th class="tnum">Vendas</th><th class="tnum">Conversão</th>
+        </tr></thead><tbody id="tb-canais"></tbody></table></div>
+      </div>
+      <div class="card">
         <div class="card-tit">Leads por departamento</div>
         <div class="card-sub">Cada departamento tem um texto de entrada próprio, então isso é contagem exata — não estimativa. A cor indica o grupo.</div>
         <div class="bars" id="ch-origem"></div>
@@ -563,25 +571,25 @@ const VENDEDORAS = ['Jhennifer', 'Ialey', 'Michelly', 'Natália'];
    carrega o grupo (a leitura estratégica) e o nome do departamento vem escrito
    ao lado (a leitura detalhada). Identidade nunca fica só na cor. */
 const GRUPOS = [
-  {id:'pago',        nome:'Anúncio pago',     cor:'var(--o1)'},
+  {id:'pago',        nome:'Anúncios',         cor:'var(--o1)'},
   {id:'instagram',   nome:'Instagram',        cor:'var(--o2)'},
   {id:'organico',    nome:'Orgânico',         cor:'var(--o3)'},
-  {id:'cliente',     nome:'Já é cliente',     cor:'var(--o4)'},
   {id:'desconhecido',nome:'Não identificada', cor:'var(--o5)'}
 ];
 const GRUPO_NOME = Object.fromEntries(GRUPOS.map(g=>[g.id,g.nome]));
 const GRUPO_COR  = Object.fromEntries(GRUPOS.map(g=>[g.id,g.cor]));
 
 const ORIGENS = [
-  {id:'publico_frio',  nome:'Público Frio',     grupo:'pago',        desc:'Anúncio para quem nunca teve contato — abre declarando a cidade'},
-  {id:'remarketing',   nome:'Remarketing',      grupo:'pago',        desc:'Anúncio para quem já interagiu — abre com "vim do Instagram"'},
-  {id:'anuncio_outro', nome:'Anúncio s/ campanha', grupo:'pago',     desc:'Texto de anúncio, mas sem marcador de qual campanha'},
-  {id:'bio_instagram', nome:'Bio do Instagram', grupo:'instagram',   desc:'Link da bio do perfil — pede o catálogo'},
-  {id:'cupom_5',       nome:'Cupom 5%',         grupo:'instagram',   desc:'Direct da campanha de 5% na primeira compra'},
-  {id:'cliente',       nome:'Cliente',          grupo:'cliente',     desc:'Número já salvo como cliente — é recompra, não aquisição'},
-  {id:'indicacao',     nome:'Indicação',        grupo:'organico',    desc:'Indicado por outro cliente'},
-  {id:'organico',      nome:'Orgânico',         grupo:'organico',    desc:'Não veio de nenhuma campanha'},
-  {id:'desconhecida',  nome:'Não identificada', grupo:'desconhecido',desc:'Sem a primeira mensagem, não dá para dizer'}
+  {id:'publico_frio',     nome:'Público Frio',        grupo:'pago',        desc:'Anúncio para quem nunca teve contato — abre declarando a cidade'},
+  {id:'remarketing',      nome:'Remarketing',         grupo:'pago',        desc:'Anúncio para quem já interagiu — abre com "vim do Instagram"'},
+  {id:'anuncio_outro',    nome:'Anúncio s/ campanha', grupo:'pago',        desc:'Texto de anúncio, mas sem marcador de qual campanha'},
+  {id:'bio_instagram',    nome:'Bio do Instagram',    grupo:'instagram',   desc:'Link da bio do perfil — pede o catálogo'},
+  {id:'direct_instagram', nome:'Direct do Instagram', grupo:'instagram',   desc:'Mandou direct depois de ver um sapato no perfil'},
+  {id:'cupom_5',          nome:'Cupom de Desconto',   grupo:'instagram',   desc:'Direct da campanha de 5% na primeira compra'},
+  {id:'cliente',          nome:'Clientes',            grupo:'organico',    desc:'Número já salvo como cliente — é recompra, não aquisição'},
+  {id:'indicacao',        nome:'Indicação',           grupo:'organico',    desc:'Indicado por outro cliente'},
+  {id:'organico',         nome:'Lead Orgânico',       grupo:'organico',    desc:'Não veio de nenhum departamento'},
+  {id:'desconhecida',     nome:'Não identificada',    grupo:'desconhecido',desc:'Sem a primeira mensagem, não dá para dizer'}
 ];
 const ORIGEM_NOME  = Object.fromEntries(ORIGENS.map(o=>[o.id,o.nome]));
 const ORIGEM_GRUPO = Object.fromEntries(ORIGENS.map(o=>[o.id,o.grupo]));
@@ -825,6 +833,17 @@ const REGRAS_ORIGEM = [
   { id:'bio_instagram', origem:'bio_instagram', confianca:'alta',
     desc:'"vim pelo link da bio e quero receber o catálogo"',
     teste:n => /vim pel[oa] link d[ao] bio|link d[ao] bio/.test(n) },
+
+  /* Direct do Instagram — viu um sapato no perfil e mandou mensagem.
+     ATENÇÃO À ORDEM: este texto termina em "quero saber mais informações", que é
+     exatamente o gatilho da regra genérica de anúncio lá embaixo. Se esta regra
+     não vier antes, todo lead de Direct é contado como anúncio pago — e a
+     leitura de verba passa a somar lead que não custou nada.
+     O que separa do Remarketing é "vi NO Instagram" contra "vim DO Instagram". */
+  { id:'direct_instagram', origem:'direct_instagram', confianca:'alta',
+    desc:'"gostei de um sapato que vi no Instagram" — direct depois de ver o perfil',
+    teste:n => /\bvi n[oa] (instagram|insta|perfil)\b/.test(n)
+               || /gostei de .{0,40}\bno (instagram|insta)\b/.test(n) },
 
   /* Remarketing — anúncio para quem já interagiu. O texto abre com "vim do
      Instagram", que é justamente o que o diferencia do Público Frio. */
@@ -1103,6 +1122,27 @@ function metricas(){
             faturado: vend.reduce((s,l)=>s+Number(l.valorVenda||0),0)};
   });
 
+  /* Os quatro canais que a operação acompanha. Não é a mesma coisa que os
+     grupos: Clientes é um DEPARTAMENTO dentro de Orgânico, mas precisa aparecer
+     sozinho — recompra e lead novo não se administram do mesmo jeito. */
+  const CANAIS = [
+    {id:'pago',      nome:'Anúncios',      cor:'var(--o1)', entra:'Público Frio · Remarketing',
+     filtro: l => ORIGEM_GRUPO[l.origem] === 'pago'},
+    {id:'instagram', nome:'Instagram',     cor:'var(--o2)', entra:'Bio · Direct · Cupom de Desconto',
+     filtro: l => ORIGEM_GRUPO[l.origem] === 'instagram'},
+    {id:'cliente',   nome:'Clientes',      cor:'var(--o4)', entra:'Já compraram, número salvo',
+     filtro: l => l.origem === 'cliente'},
+    {id:'organico',  nome:'Lead Orgânico', cor:'var(--o3)', entra:'Não veio por nenhum departamento',
+     filtro: l => ORIGEM_GRUPO[l.origem] === 'organico' && l.origem !== 'cliente'}
+  ];
+  const porCanal = CANAIS.map(c => {
+    const meus = leads.filter(c.filtro);
+    const vend = meus.filter(l => l.etapa === 'vendido');
+    return {...c, leads: meus.length, vendas: vend.length,
+            conversao: pct(vend.length, meus.length),
+            faturado: vend.reduce((s,l)=>s+Number(l.valorVenda||0),0)};
+  });
+
   const porGrupo = GRUPOS.map(g => {
     const meus = leads.filter(l => grupoDe(l) === g.id);
     const vend = meus.filter(l => l.etapa === 'vendido');
@@ -1123,7 +1163,7 @@ function metricas(){
     leads, total: leads.length, vendas: vendidos.length,
     conversao: pct(vendidos.length, leads.length),
     faturado, ticket: vendidos.length ? faturado/vendidos.length : 0,
-    recebidas, fonteMsgs: fonte, porVend, porOrigem, porGrupo, funil,
+    recebidas, fonteMsgs: fonte, porVend, porOrigem, porGrupo, porCanal, funil,
     visitas: visitas.length,
     convLeadVisita:  pct(visitas.length, leads.length),
     convVisitaVenda: pct(vendasLoja.length, visitas.length),
@@ -1367,6 +1407,22 @@ function renderPainel(){
     rotulo: `${v.conversao}% <small>(${v.vendas}/${v.leads})</small>`,
     tip: `${v.vendedora}: ${v.vendas} vendas em ${v.leads} leads · ${v.compareceram} vieram à loja`
   })));
+
+  const semCanal = m.total - m.porCanal.reduce((s,c) => s + c.leads, 0);
+  $('tb-canais').innerHTML = m.porCanal.map(c => `<tr>
+      <td class="t-nome"><span class="pill"><span class="pill-dot" style="background:${c.cor}"></span>${esc(c.nome)}</span></td>
+      <td style="font-size:11.5px;color:var(--cr3);">${esc(c.entra)}</td>
+      <td class="tnum">${c.leads}</td>
+      <td class="tnum">${pct(c.leads, m.total)}%</td>
+      <td class="tnum">${c.vendas}</td>
+      <td class="tnum">${c.leads ? c.conversao + '%' : '—'}</td>
+    </tr>`).join('') + (semCanal > 0 ? `<tr>
+      <td class="t-nome"><span class="pill"><span class="pill-dot" style="background:var(--o5)"></span>Não identificada</span></td>
+      <td style="font-size:11.5px;color:var(--cr3);">Primeira mensagem ainda não lida</td>
+      <td class="tnum">${semCanal}</td>
+      <td class="tnum">${pct(semCanal, m.total)}%</td>
+      <td class="tnum">—</td><td class="tnum">—</td>
+    </tr>` : '');
 
   const orig = m.porOrigem.filter(o => o.leads > 0).sort((a,b) => b.leads - a.leads);
   barras($('ch-origem'), orig.map(o => ({
@@ -2471,6 +2527,7 @@ window.CRM = {
             }))})).filter(f => f.clientes.length),
   resumo:   () => metricas(),
   cruzamento: () => cruzamento(),
+  canais:   () => metricas().porCanal,
   entregas: () => cruzarEntregas(),
   classificar: (texto) => classificarOrigem(texto),
   regras:   () => REGRAS_ORIGEM.map(r => ({id:r.id, origem:r.origem, confianca:r.confianca, reconhece:r.desc})),

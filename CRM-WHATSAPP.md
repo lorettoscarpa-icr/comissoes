@@ -137,19 +137,35 @@ nunca inventa. IA num problema desses só adicionaria erro.
 
 | Departamento | Grupo | Texto de entrada |
 |---|---|---|
-| **Público Frio** | Anúncio pago | "sou de / estou em Goiânia" + interesse |
-| **Remarketing** | Anúncio pago | "vim do Instagram e quero saber mais informações sobre…" |
-| **Anúncio s/ campanha** | Anúncio pago | Tem cara de anúncio, sem marcador de qual |
+| **Público Frio** | Anúncios | "sou de / estou em Goiânia" + interesse |
+| **Remarketing** | Anúncios | "vim **do** Instagram e quero saber mais informações sobre…" |
+| **Anúncio s/ campanha** | Anúncios | Tem cara de anúncio, sem marcador de qual |
 | **Bio do Instagram** | Instagram | "vim pelo link da bio e quero receber o catálogo" |
-| **Cupom 5%** | Instagram | "tenho 5% de desconto para realizar a minha primeira compra" |
-| **Cliente** | Já é cliente | O **nome do contato** tem "Cliente" — ex.: "Gregory Cliente" |
+| **Direct do Instagram** | Instagram | "gostei de um sapato que vi **no** Instagram" |
+| **Cupom de Desconto** | Instagram | "tenho 5% de desconto para realizar a minha primeira compra" |
+| **Clientes** | Orgânico | O **nome do contato** tem "Cliente" — ex.: "Gregory Cliente" |
 | **Indicação** | Orgânico | "me indicou", "meu amigo comprou aí" |
-| **Orgânico** | Orgânico | Não veio de nenhuma campanha |
+| **Lead Orgânico** | Orgânico | Não veio por nenhum departamento |
 | **Não identificada** | — | Sem a primeira mensagem, não dá para dizer |
 
-O **grupo** existe por um motivo prático: seis cores num gráfico não se distinguem. A cor
-carrega o grupo — a leitura estratégica — e o nome do departamento vem escrito ao lado.
-Identidade nunca fica só na cor.
+### Os quatro canais
+
+O painel abre com a leitura que a operação acompanha — leads e conversão de cada canal:
+
+| Canal | O que entra |
+|---|---|
+| **Anúncios** | Público Frio · Remarketing |
+| **Instagram** | Bio · Direct · Cupom de Desconto |
+| **Clientes** | Já compraram, número salvo |
+| **Lead Orgânico** | Não veio por nenhum departamento |
+
+Repare que **Clientes é um departamento dentro do grupo Orgânico, mas aparece como canal
+próprio**: recompra e lead novo não se administram do mesmo jeito, e misturar os dois
+esconde os dois.
+
+O **grupo** existe por um motivo prático: nove cores num gráfico não se distinguem. A cor
+carrega o grupo e o nome do departamento vem escrito ao lado — identidade nunca fica só na
+cor.
 
 ### Três decisões que valem saber
 
@@ -163,8 +179,14 @@ falta o marcador que diz de qual campanha veio, o lead fica explicitamente em *A
 campanha* e cai na fila de conferência. Chutar aqui contaminaria a leitura de verba, que é
 justamente o que esses números existem para responder.
 
-**A ordem das regras importa.** Cupom antes de Bio, porque as duas terminam pedindo o
-catálogo. Remarketing e Público Frio antes do genérico. A primeira regra que casar vence.
+**A ordem das regras importa, e aqui ela evita um erro caro.** A mensagem do Direct
+termina em *"quero saber mais informações"* — exatamente o gatilho da regra genérica de
+anúncio. Se o Direct não for testado antes, **todo lead de Direct é contado como anúncio
+pago**, e a leitura de verba passa a somar lead que não custou nada. O que separa o Direct
+do Remarketing é uma preposição: "vi **no** Instagram" contra "vim **do** Instagram".
+
+Cupom vem antes de Bio, porque as duas terminam pedindo o catálogo. A primeira regra que
+casar vence.
 
 O texto do Público Frio **já teve variações** ("sou de" / "estou em", "tenho interesse" /
 "quero saber"), então a regra cobre as duas formas em vez de casar uma frase literal — se

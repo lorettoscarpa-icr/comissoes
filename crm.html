@@ -164,6 +164,9 @@ main{max-width:1280px;margin:0 auto;padding:32px 24px 90px;}
 .rep-item{padding:16px 20px;border-bottom:1px solid var(--oud2);display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start;}
 .rep-item:last-child{border-bottom:none;}
 .rep-item.aberto{opacity:.5;background:rgba(108,191,108,.04);}
+.dia-n{font-family:'DM Mono',monospace;font-size:12px;color:var(--ou);background:var(--oud2);
+  border:1px solid var(--oud);width:24px;height:24px;display:inline-flex;align-items:center;
+  justify-content:center;flex-shrink:0;}
 .rep-item.aberto .rep-sug{border-left-color:rgba(108,191,108,.5);}
 .rep-topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:7px;}
 .rep-nome{font-size:14px;color:var(--cr);letter-spacing:.4px;font-weight:500;}
@@ -262,6 +265,7 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
   </header>
 
   <div class="abas">
+    <button class="aba" data-pag="meudia" onclick="irPara('meudia')">Meu dia<span class="aba-badge" id="bd-dia">0</span></button>
     <button class="aba ativa" data-pag="painel" onclick="irPara('painel')">Painel</button>
     <button class="aba" data-pag="leads" onclick="irPara('leads')">Leads<span class="aba-badge" id="bd-leads">0</span></button>
     <button class="aba" data-pag="repescagem" onclick="irPara('repescagem')">Repescagem<span class="aba-badge" id="bd-rep">0</span></button>
@@ -282,12 +286,24 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
       </div>
     </div>
 
+    <!-- ───────── MEU DIA ───────── -->
+    <div class="pag" id="pag-meudia">
+      <div class="slbl">O que fazer agora <span class="slbl-tag" id="tag-dia">—</span></div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        Uma linha por cliente, na ordem em que vale a pena atacar. Quem está <b>esperando resposta</b>
+        vem antes de qualquer repescagem — correr atrás de quem sumiu enquanto alguém espera é trocar
+        dinheiro certo por dinheiro incerto. Desça de cima para baixo.
+      </div>
+      <div id="dia-resumo"></div>
+      <div id="meudia" style="margin-top:18px;"></div>
+    </div>
+
     <!-- ───────── PAINEL ───────── -->
     <div class="pag ativa" id="pag-painel">
       <div class="slbl">Resumo do mês <span class="slbl-tag" id="tag-periodo">—</span></div>
       <div class="tiles" id="tiles"></div>
 
-      <div class="slbl">Volume e conversão por vendedora</div>
+      <div class="slbl" id="slbl-vend">Volume e conversão por vendedora</div>
       <div class="g2">
         <div class="card">
           <div class="card-tit">Mensagens recebidas</div>
@@ -1135,9 +1151,15 @@ const leadsDoMes  = () => todosLeads().filter(l => String(l.primeiroContato||'')
 /* Volume de mensagens. Fonte primária é crm_msgs (contagem por dia, gravada pelo
    Claude na varredura). Sem varredura no mês, cai para os contadores do próprio
    lead — que só cobrem quem entrou no mês. A UI diz qual fonte está valendo. */
+/* Quem aparece nos comparativos. Para a vendedora é só ela: um gráfico com as
+   colegas zeradas não é "visão da carteira", é painel quebrado — e o volume de
+   mensagens delas vazaria, porque crm_msgs não passa pelo filtro de leads. */
+const vendedorasVisiveis = () => ehGestao() ? VENDEDORAS : [minhaVendedora()].filter(Boolean);
+
 function msgsDoMes(){
   const pre = mesPrefixo();
-  const out = Object.fromEntries(VENDEDORAS.map(v => [v, {recebidas:0, enviadas:0}]));
+  const VIS = vendedorasVisiveis();
+  const out = Object.fromEntries(VIS.map(v => [v, {recebidas:0, enviadas:0}]));
   let temDiario = false;
   for(const [dia, val] of Object.entries(MSGS_DIA)){
     if(!dia.startsWith(pre)) continue;
@@ -1170,7 +1192,7 @@ function metricas(){
   const vendasEntrega = vendidos.filter(l => canalDe(l) === 'entrega');
   const vendasIndef   = vendidos.filter(l => canalDe(l) === 'indefinido');
 
-  const porVend = VENDEDORAS.map(v => {
+  const porVend = vendedorasVisiveis().map(v => {
     const meus = leads.filter(l => l.vendedora === v);
     const vend = meus.filter(l => l.etapa === 'vendido');
     const comp = meus.filter(veioALoja);
@@ -1329,7 +1351,7 @@ function cruzamento(){
   const atribuido = centralValor ? Math.min(100, Math.round(crmValor / centralValor * 100)) : null;
 
   // ── Por vendedora: peças e valor reais × mensagens recebidas ──
-  const porVend = VENDEDORAS.map(v => {
+  const porVend = vendedorasVisiveis().map(v => {
     const dv = f && f.result && f.result[v];
     let pecas = 0, valor = 0;
     if(dv) for(const [cat, o] of Object.entries(dv)){
@@ -1742,13 +1764,15 @@ const NOME_CAT_CRM = {
 function aplicarPapel(){
   const eu = minhaVendedora();
   $('h-quem').textContent = eu ? `${eu} · carteira` : 'Gestão · visão da loja';
+  const t = $('slbl-vend');
+  if(t) t.firstChild.textContent = eu ? 'Meus números' : 'Volume e conversão por vendedora';
 
   // Cruzamento mostra o faturamento da loja inteira; Importar é operação técnica.
   for(const pag of ['cruzamento','importar']){
     const aba = document.querySelector(`.aba[data-pag="${pag}"]`);
     if(aba) aba.style.display = ehGestao() ? '' : 'none';
   }
-  if(!ehGestao() && ['cruzamento','importar'].includes(PAG_ATUAL)) irPara('painel');
+  if(!ehGestao() && ['cruzamento','importar'].includes(PAG_ATUAL)) irPara('meudia');
 
   if(eu){
     for(const id of ['f-vend','f-rep-vend','f-ag-vend','f-aut-vend']){
@@ -2699,6 +2723,11 @@ window.CRM = {
   cruzamento: () => cruzamento(),
   canais:   () => metricas().porCanal,
   quemSouEu: () => EU,
+  meuDia:   () => meuDia().map(x => ({telefone:x.lead.telefone, nome:x.lead.nome,
+              vendedora:x.lead.vendedora, acao:x.acao.id, titulo:x.acao.titulo,
+              porque:x.acao.porque(x.lead), feita:x.feita,
+              texto: x.acao.texto ? x.acao.texto(x.lead) : null})),
+  acoes:    () => ACOES.map(a => ({id:a.id, prio:a.prio, titulo:a.titulo, consomeTeto:a.consomeTeto})),
   definirUsuario: async (email, vendedora, papel) => {
     if(!ehGestao()) return 'Só a gestão pode alterar usuários';
     if(vendedora && !VENDEDORAS.includes(vendedora)) return `Vendedora inválida. Use: ${VENDEDORAS.join(', ')}`;
@@ -2825,6 +2854,225 @@ O QUE A IA (CLAUDE) PRECISA DECIDIR, PORQUE REGRA NÃO RESOLVE
   · compareceu     se apareceu na loja
   · canalVenda     loja ou entrega`;
 
+/* ══════════════════ O QUE FAZER AGORA ══════════════════
+   O CRM decide a próxima ação de cada cliente e ordena a lista. A vendedora não
+   escolhe fila nem aba: abre "Meu dia" e desce de cima para baixo.
+
+   Duas regras deram a ordem:
+
+   1. Responder quem está esperando vem ANTES de qualquer repescagem. O
+      diagnóstico mediu cliente perguntando às 10h54 e sendo respondido às 14h25 —
+      correr atrás de quem sumiu enquanto alguém espera na fila é trocar dinheiro
+      certo por dinheiro incerto.
+   2. Preço que ficou só em áudio vem logo depois. Foram 122 casos numa varredura;
+      é o vazamento mais caro e o mais barato de fechar.
+
+   Uma ação por cliente, nunca duas — senão a mesma pessoa recebe duas mensagens
+   no mesmo dia, que é exatamente o que o teto existe para impedir. */
+
+const ACOES = [
+  {
+    id:'responder', prio:1, rotulo:'Responder', tom:'er',
+    titulo:'Está esperando resposta',
+    quando: l => !['vendido','perdido'].includes(l.etapa) && l.ultimaCliente
+                 && (!l.ultimaLoja || String(l.ultimaCliente) > String(l.ultimaLoja)),
+    porque: l => `Escreveu por último ${haQuantoTempo(l.ultimaCliente)} e a loja ainda não respondeu.`,
+    // Sem texto sugerido de propósito: não dá para saber o que ele perguntou.
+    texto: null, consomeTeto:false, ordem: l => diasDesde(l.ultimaCliente)
+  },
+  {
+    id:'visita_hoje', prio:2, rotulo:'Confirmar', tom:'am',
+    titulo:'Vem à loja hoje',
+    quando: l => l.agendadoPara === hoje() && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa),
+    porque: l => `Combinou de vir hoje${l.agendadoHora ? ' às ' + l.agendadoHora : ''}.`,
+    texto: l => (AUTOMACOES.find(a=>a.id==='hoje')||{}).texto(l), consomeTeto:false
+  },
+  {
+    id:'preco_audio', prio:3, rotulo:'Mandar preço', tom:'er',
+    titulo:'Perguntou o preço e recebeu áudio',
+    quando: l => (l.tags||[]).includes('preco_so_audio') && !['vendido','perdido'].includes(l.etapa),
+    porque: () => 'Ele não ouve o áudio e some. Mandar o valor por escrito é o que reabre a conversa.',
+    texto: l => sugestaoTexto(l, 'preco_audio'), consomeTeto:true
+  },
+  {
+    id:'visita_amanha', prio:4, rotulo:'Confirmar', tom:'am',
+    titulo:'Vem à loja amanhã',
+    quando: l => l.agendadoPara === new Date(Date.now()+86400000).toISOString().slice(0,10)
+                 && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa),
+    porque: () => 'Confirmar na véspera é o que separa visita marcada de visita realizada.',
+    texto: l => (AUTOMACOES.find(a=>a.id==='vespera')||{}).texto(l), consomeTeto:false
+  },
+  {
+    id:'nao_apareceu', prio:5, rotulo:'Remarcar', tom:'am',
+    titulo:'Marcou e não apareceu',
+    quando: l => l.agendadoPara && l.agendadoPara < hoje() && l.compareceu !== true
+                 && !['vendido','perdido'].includes(l.etapa),
+    porque: l => `Tinha combinado para ${dataBonita(l.agendadoPara)} e não veio.`,
+    texto: l => (AUTOMACOES.find(a=>a.id==='noshow')||{}).texto(l), consomeTeto:false
+  },
+  {
+    id:'localizacao', prio:6, rotulo:'Chamar', tom:'',
+    titulo:'Recebeu o endereço e não veio',
+    quando: l => rankAlcancado(l) >= ETAPA_RANK.localizacao && l.compareceu !== true
+                 && !l.agendadoPara && diasDesde(l.ultimaLoja || l.ultimaCliente) >= DIAS_ESFRIOU,
+    porque: l => `Já sabia onde é a loja e sumiu ${haQuantoTempo(l.ultimaLoja || l.ultimaCliente)}.`,
+    texto: l => sugestaoTexto(l, 'localizacao'), consomeTeto:true
+  },
+  {
+    id:'marcar_visita', prio:7, rotulo:'Marcar dia', tom:'',
+    titulo:'Já escolheu tudo, falta marcar o dia',
+    quando: l => l.numeracao && l.modelo && !l.agendadoPara && l.compareceu !== true
+                 && !['vendido','perdido'].includes(l.etapa) && rankAlcancado(l) >= ETAPA_RANK.numeracao,
+    porque: () => 'Modelo, cor e numeração fechados. O que falta é dia e hora.',
+    texto: l => {
+      const p = (l.nome||'').trim().split(/\s+/)[0];
+      const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
+      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+        `Separei o ${item} aqui em seu nome.`,
+        `Qual dia fica melhor para você passar e experimentar?`].join('\n\n');
+    }, consomeTeto:true
+  },
+  {
+    id:'numeracao', prio:8, rotulo:'Fechar numeração', tom:'',
+    titulo:'Parou na numeração',
+    quando: l => l.etapa === 'numeracao' && diasDesde(l.ultimaCliente || l.ultimaLoja) >= DIAS_ESFRIOU,
+    porque: () => 'É a última pergunta antes de fechar — e é onde ele travou.',
+    texto: l => sugestaoTexto(l, 'numeracao'), consomeTeto:true
+  },
+  {
+    id:'fotos', prio:9, rotulo:'Retomar', tom:'',
+    titulo:'Sumiu depois das fotos',
+    quando: l => ['novo','atendido','preco'].includes(l.etapa)
+                 && diasDesde(l.ultimaCliente || l.ultimaLoja) >= DIAS_ESFRIOU,
+    porque: l => `Recebeu fotos ou catálogo e não respondeu mais ${haQuantoTempo(l.ultimaCliente || l.ultimaLoja)}.`,
+    texto: l => sugestaoTexto(l, 'fotos'), consomeTeto:true
+  },
+  {
+    id:'recompra', prio:10, rotulo:'Oferecer', tom:'ok',
+    titulo:'Comprou faz tempo',
+    quando: l => l.etapa === 'vendido' && l.dataVenda && diasDesde(l.dataVenda) >= 60
+                 && !(l.tags||[]).includes('nao_cliente'),
+    porque: l => `Levou ${l.modelo || 'um par'} há ${diasDesde(l.dataVenda)} dias. Cliente que já comprou é o lead mais barato que existe.`,
+    texto: l => {
+      const p = (l.nome||'').trim().split(/\s+/)[0];
+      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+        `Faz um tempinho que você levou ${l.modelo ? 'o ' + l.modelo : 'seu par'} com a gente.`,
+        'Chegou coleção nova — quer que eu te mande as fotos?'].join('\n\n');
+    }, consomeTeto:false
+  }
+];
+const ACAO_POR_ID = Object.fromEntries(ACOES.map(a=>[a.id,a]));
+
+/* Já foi feita hoje? Ação que consome o teto é rastreada como repescagem;
+   as outras, como lembrete do próprio tipo. */
+function acaoFeitaHoje(l, acao){
+  return acao.consomeTeto
+    ? abertoHoje(l)
+    : (l.lembretes||[]).some(x => x && x.tipo === acao.id && x.data === hoje() && x.estado !== 'nao_enviado');
+}
+
+/* A próxima ação de UM cliente — a primeira da lista que se aplica e é permitida. */
+function sugerirAcao(l){
+  for(const a of ACOES){
+    let cabe = false;
+    try{ cabe = a.quando(l); }catch(e){ cabe = false; }
+    if(!cabe) continue;
+    // O teto e os bloqueios do playbook valem só para o que é abordagem fria.
+    if(a.consomeTeto && !podeRepescar(l).ok && !ABERTOS_SESSAO.has(l.telefone)) continue;
+    if((l.tags||[]).includes('nao_cliente')) continue;
+    return a;
+  }
+  return null;
+}
+
+/* A lista do dia, ordenada. Uma linha por cliente. */
+function meuDia(){
+  const itens = [];
+  for(const l of todosLeads()){
+    const a = sugerirAcao(l);
+    if(!a) continue;
+    itens.push({lead: l, acao: a, feita: acaoFeitaHoje(l, a),
+                espera: a.ordem ? a.ordem(l) : diasDesde(l.ultimaCliente || l.ultimaLoja)});
+  }
+  itens.sort((x,y) => x.acao.prio - y.acao.prio || y.espera - x.espera);
+  return itens;
+}
+
+async function marcarAcao(fone, acaoId){
+  const a = ACAO_POR_ID[acaoId];
+  if(!a) return;
+  if(a.consomeTeto) return marcarAberto(fone, a.titulo);
+  return marcarLembreteAberto(fone, acaoId);
+}
+async function desfazerAcao(fone, acaoId){
+  const a = ACAO_POR_ID[acaoId];
+  if(!a) return;
+  if(a.consomeTeto) return naoEnviei(fone);
+  return naoEnvieiLembrete(fone, acaoId);
+}
+
+const TETO_MEU_DIA = 30;
+
+function renderMeuDia(){
+  const todos = meuDia();
+  const pend = todos.filter(x => !x.feita);
+  $('bd-dia').textContent = pend.length;
+  $('tag-dia').textContent = pend.length
+    ? `${pend.length} para fazer` : 'tudo em dia';
+
+  const porTipo = {};
+  for(const x of pend) porTipo[x.acao.id] = (porTipo[x.acao.id]||0) + 1;
+  $('dia-resumo').innerHTML = pend.length ? `<div class="tiles">
+      ${ACOES.filter(a=>porTipo[a.id]).slice(0,5).map(a => `
+        <div class="tile"><div class="lbl">${esc(a.titulo)}</div>
+          <div class="val${a.tom==='er'?'':' verde'}">${porTipo[a.id]}</div>
+          <div class="hint">${esc(a.rotulo)}</div></div>`).join('')}
+    </div>` : '';
+
+  const mostrar = todos.slice(0, TETO_MEU_DIA);
+  if(!todos.length){
+    $('meudia').innerHTML = `<div class="vazio"><strong>Nada pendente</strong>
+      Ninguém está esperando resposta, não há visita para confirmar e as conversas frias
+      já foram trabalhadas. Quando a próxima varredura rodar, o que aparecer entra aqui.</div>`;
+    return;
+  }
+
+  $('meudia').innerHTML = mostrar.map((x, i) => {
+    const l = x.lead, a = x.acao;
+    const txt = a.texto ? a.texto(l) : null;
+    const href = `https://wa.me/${esc(l.telefone)}` + (txt ? `?text=${encodeURIComponent(txt)}` : '');
+    return `<div class="rep-item ${x.feita ? 'aberto' : ''}">
+      <div>
+        <div class="rep-topo">
+          <span class="dia-n">${i+1}</span>
+          <span class="rep-nome">${esc(l.nome || foneBonito(l.telefone))}</span>
+          <span class="pill ${a.tom==='er'?'pill-er':a.tom==='am'?'pill-am':a.tom==='ok'?'pill-ok':''}">${esc(a.titulo)}</span>
+          ${ehGestao() ? `<span class="pill">${esc(l.vendedora)}</span>` : ''}
+          ${x.feita ? '<span class="pill pill-ok">Aberto agora</span>' : ''}
+        </div>
+        <div class="rep-meta">${esc(a.porque(l))}</div>
+        <div class="rep-meta" style="margin-bottom:${txt?'10px':'0'};">
+          ${esc([l.modelo, l.cor, l.numeracao && ('nº '+l.numeracao)].filter(Boolean).join(' · ') || 'sem modelo definido')}
+          · ${foneBonito(l.telefone)}
+          ${a.consomeTeto ? ` · ${tentativas(l)} de ${MAX_REPESCAGENS} repescagens` : ''}
+        </div>
+        ${txt ? `<div class="rep-sug">${esc(txt)}</div>`
+              : `<div class="rep-meta" style="color:var(--ou2);">Abra a conversa e responda o que ele perguntou — o texto depende do que veio.</div>`}
+      </div>
+      <div class="rep-acoes">
+        ${x.feita
+          ? `<button class="btn btn-sm btn-er" onclick="desfazerAcao('${esc(l.telefone)}','${esc(a.id)}')">Não enviei</button>`
+          : `<a class="btn btn-sm" href="${href}" target="_blank" rel="noopener"
+                onclick="marcarAcao('${esc(l.telefone)}','${esc(a.id)}')">${esc(a.rotulo)} no WhatsApp</a>`}
+        <button class="btn btn-sm" onclick="abrirLead('${esc(l.telefone)}')">Abrir ficha</button>
+      </div>
+    </div>`;
+  }).join('') + (todos.length > TETO_MEU_DIA
+    ? `<div class="card-sub" style="margin-top:16px;">Mostrando as ${TETO_MEU_DIA} mais urgentes de ${todos.length}.
+       As outras ${todos.length - TETO_MEU_DIA} continuam na fila e sobem conforme estas saem.</div>`
+    : '');
+}
+
 /* ══════════════════ NAVEGAÇÃO ══════════════════ */
 
 function irPara(pag){
@@ -2837,6 +3085,7 @@ function irPara(pag){
 function render(){
   $('mes-atual').textContent = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
   try{
+    if(PAG_ATUAL === 'meudia')     renderMeuDia();
     if(PAG_ATUAL === 'painel')     renderPainel();
     if(PAG_ATUAL === 'leads')      renderLeads();
     if(PAG_ATUAL === 'repescagem') renderRepescagem();
@@ -2847,6 +3096,7 @@ function render(){
     $('bd-leads').textContent = leadsDoMes().length;
     $('bd-rep').textContent   = contarRepescagem();
     $('bd-aut').textContent   = contarAutomacoes();
+    $('bd-dia').textContent   = meuDia().filter(x => !x.feita).length;
     $('bd-ag').textContent    = todosLeads().filter(l => l.agendadoPara && l.agendadoPara <= hoje()
                                   && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa)).length;
   }catch(e){
@@ -2913,6 +3163,8 @@ auth.onAuthStateChanged(async user => {
   $('h-email').textContent = USUARIO;
   $('doc-schema').textContent = DOC_SCHEMA;
   preencherFiltros();
+  // A vendedora abre no que ela tem para fazer; a gestão, no painel de números.
+  if(!ehGestao()) irPara('meudia');
   try{
     await Promise.all([carregarDados(), carregarCentral()]);
   }catch(e){

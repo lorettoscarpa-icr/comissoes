@@ -143,8 +143,8 @@ await CRM.definirUsuario('larissa@loretto.com', '', 'gestao')
 
 | Papel | Vê |
 |---|---|
-| **Vendedora** | Só a carteira dela, em todas as telas. Sem Cruzamento (faturamento da loja) e sem Importar |
-| **Gestão** | Tudo |
+| **Vendedora** | Abre em *Meu dia*. Só a carteira dela, em todas as telas. Os comparativos mostram só a linha dela. Sem Cruzamento (faturamento da loja) e sem Importar |
+| **Gestão** | Abre no *Painel*. Tudo, incluindo o comparativo das quatro |
 
 O recorte é feito num único ponto — a função que lista os leads — para não sobrar tela
 sem filtro. Trocar o padrão (deixar a vendedora ver o comparativo das quatro) é decisão de
@@ -158,6 +158,52 @@ gestão, não de código.
 >   allow read, write: if request.auth != null;   // troque por uma checagem de carteira
 > }                                                // quando cada vendedora tiver login
 > ```
+
+---
+
+## Meu dia — o CRM diz o que fazer
+
+A vendedora não escolhe fila nem aba. Abre em **Meu dia**, vê uma linha por cliente na
+ordem em que vale a pena atacar, e desce de cima para baixo.
+
+Cada linha traz **o que fazer**, **por quê** (a evidência) e, quando dá para saber, **o
+texto pronto** — com o link que abre o WhatsApp já com a mensagem digitada.
+
+### A ordem, e por que ela é essa
+
+| # | Ação | Quando | Consome o teto? |
+|---|---|---|---|
+| 1 | **Está esperando resposta** | O cliente escreveu por último e a loja não respondeu | Não |
+| 2 | Vem à loja hoje | Visita marcada para hoje | Não |
+| 3 | Perguntou o preço e recebeu áudio | Situação `preco_so_audio` | Sim |
+| 4 | Vem à loja amanhã | Visita marcada para amanhã | Não |
+| 5 | Marcou e não apareceu | A data passou sem comparecimento | Não |
+| 6 | Recebeu o endereço e não veio | Levou a localização e sumiu | Sim |
+| 7 | Já escolheu tudo, falta marcar o dia | Modelo, cor e numeração fechados, sem data | Sim |
+| 8 | Parou na numeração | Travou na última pergunta antes de fechar | Sim |
+| 9 | Sumiu depois das fotos | Recebeu catálogo e não respondeu | Sim |
+| 10 | Comprou faz tempo | Venda há 60 dias ou mais | Não |
+
+Duas decisões deram essa ordem:
+
+**Responder quem espera vem antes de qualquer repescagem.** O diagnóstico mediu cliente
+perguntando às 10h54 e sendo respondido às 14h25. Correr atrás de quem sumiu enquanto
+alguém espera na fila é trocar dinheiro certo por dinheiro incerto.
+
+**Preço que ficou só em áudio vem logo depois.** Foram 122 casos numa única varredura — o
+vazamento mais caro e o mais barato de fechar.
+
+### Regras que a lista respeita
+
+- **Uma ação por cliente, nunca duas.** Senão a mesma pessoa recebe duas mensagens no
+  mesmo dia — exatamente o que o teto existe para impedir.
+- **Só o que é abordagem fria consome o teto de 3.** Responder alguém que escreveu, ou
+  confirmar uma visita que o cliente marcou, não é repescagem.
+- Quem está marcado como `não é cliente` nunca aparece.
+- A ação de *Está esperando resposta* **não sugere texto** — não dá para saber o que ele
+  perguntou. Ela abre a conversa.
+- A lista mostra as 30 mais urgentes e **diz quantas ficaram de fora** — nada é truncado em
+  silêncio.
 
 ---
 

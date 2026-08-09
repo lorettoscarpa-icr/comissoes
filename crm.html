@@ -263,6 +263,7 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
     <button class="aba" data-pag="leads" onclick="irPara('leads')">Leads<span class="aba-badge" id="bd-leads">0</span></button>
     <button class="aba" data-pag="repescagem" onclick="irPara('repescagem')">Repescagem<span class="aba-badge" id="bd-rep">0</span></button>
     <button class="aba" data-pag="agenda" onclick="irPara('agenda')">Agenda<span class="aba-badge" id="bd-ag">0</span></button>
+    <button class="aba" data-pag="automacoes" onclick="irPara('automacoes')">Automações<span class="aba-badge" id="bd-aut">0</span></button>
     <button class="aba" data-pag="importar" onclick="irPara('importar')">Importar</button>
   </div>
 
@@ -361,6 +362,41 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <select class="sel" id="f-ag-vend" onchange="renderAgenda()"></select>
       </div>
       <div id="agenda"></div>
+    </div>
+
+    <!-- ───────── AUTOMAÇÕES ───────── -->
+    <div class="pag" id="pag-automacoes">
+      <div class="slbl">O que sai sozinho hoje</div>
+      <div id="aut-resumo"></div>
+
+      <div class="slbl">Lembretes de visita marcada
+        <span class="slbl-tag">não consomem o teto de repescagem</span>
+      </div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        Repescagem é a loja correndo atrás de quem sumiu — por isso tem teto de 3.
+        Lembrete é confirmar um compromisso que o <b>próprio cliente marcou</b>, e travar os dois
+        junto faria a loja deixar de confirmar visita por causa de mensagem antiga.
+        A trava aqui é outra: cada lembrete sai <b>uma vez só</b> por cliente.
+      </div>
+      <div class="filtros">
+        <select class="sel" id="f-aut-vend" onchange="renderAutomacoes()"></select>
+      </div>
+      <div id="automacoes"></div>
+
+      <div class="slbl">Classificação de origem
+        <span class="slbl-tag" id="tag-revisao">—</span>
+      </div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        A origem é lida da <b>primeira mensagem do cliente</b> por regra de texto — as mensagens de
+        anúncio do Meta são template fixo, então isso é exato e não depende de ninguém marcar nada.
+        Abaixo ficam só os casos em que nenhuma regra casou ou a confiança foi média:
+        é a fila de conferência, para a automação não errar em silêncio.
+      </div>
+      <div class="filtros">
+        <button class="btn btn-sm" onclick="reclassificarTudo()">Reclassificar tudo</button>
+        <button class="btn btn-sm" onclick="verRegras()">Ver as regras</button>
+      </div>
+      <div id="revisao"></div>
     </div>
 
     <!-- ───────── IMPORTAR ───────── -->
@@ -566,8 +602,94 @@ function leadVazio(fone){
     agendadoPara: '', agendadoHora: '',
     compareceu: null, valorVenda: 0, dataVenda: '',
     repescagens: [], bloquearRepescagem: false, motivoBloqueio: '',
+    primeiraMensagem: '', origemAuto: '', origemConfianca: '', origemManual: false,
+    lembretes: [],
     obs: '', criadoEm: new Date().toISOString(), atualizadoEm: '', atualizadoPor: ''
   };
+}
+
+/* ══════════════════ CLASSIFICAÇÃO AUTOMÁTICA DE ORIGEM ══════════════════
+   Camada determinística, rodando sobre a PRIMEIRA mensagem do cliente.
+   As mensagens de anúncio do Meta são TEXTO DE TEMPLATE — sempre iguais. Isso
+   é casamento de padrão, não interpretação: é exato, não custa nada e nunca
+   inventa. A IA só entra onde precisa de julgamento (etapa, modelo, situação).
+   A ordem importa: o template do anúncio veiculado no Instagram tem que ser
+   testado ANTES das regras de Instagram orgânico, senão vira orgânico errado.
+
+   PARA ADICIONAR UM PADRÃO NOVO: inclua a frase em `frases` (minúscula, sem
+   acento) ou uma regra nova aqui embaixo, e clique em "Reclassificar tudo"
+   no painel. Nenhum lead com origem definida na mão é sobrescrito. */
+
+const semAcento = t => String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const normTxt   = t => semAcento(t).toLowerCase().replace(/\s+/g,' ').trim();
+
+/* Palavras que aparecem em CAIXA ALTA sem serem nome de modelo */
+const CAPS_IGNORAR = new Set(['OLA','BOM','DIA','BOA','TARDE','NOITE','LORETTO','SCARPA',
+  'GOIANIA','APARECIDA','INSTAGRAM','FACEBOOK','WHATSAPP','SIM','NAO','OK','PIX','CEP','LTDA']);
+function modeloEmCaixaAlta(txt){
+  const toks = semAcento(String(txt||'')).match(/\b[A-Z]{4,}\b/g) || [];
+  return toks.filter(t => !CAPS_IGNORAR.has(t));
+}
+
+const REGRAS_ORIGEM = [
+  { id:'anuncio_interesse', origem:'anuncio', confianca:'alta',
+    desc:'Template do anúncio — "quero/tenho interesse em saber mais informações"',
+    frases:['quero saber mais informacoes','gostaria de saber mais informacoes',
+            'tenho interesse em saber mais sobre','tenho interesse em ver mais informacoes',
+            'tenho interesse em saber mais informacoes','quero mais informacoes sobre',
+            'gostaria de mais informacoes'],
+    teste(n){ return this.frases.some(f => n.includes(f)); } },
+
+  { id:'anuncio_cidade', origem:'anuncio', confianca:'alta',
+    desc:'Template do anúncio que abre declarando a cidade — "sou de Goiânia e quero saber mais"',
+    teste:n => /sou de [a-z\u00e0-\u00fc ]{3,20}e (quero|gostaria|tenho)/.test(n) },
+
+  { id:'anuncio_instagram', origem:'anuncio', confianca:'alta',
+    desc:'Template do anúncio veiculado no Instagram — "vim no Instagram e quero saber mais"',
+    teste:n => /vim (n?o|pelo|do|pelo) instagram/.test(n) && /(quero|gostaria|interesse|informac)/.test(n) },
+
+  { id:'anuncio_modelo_caps', origem:'anuncio', confianca:'media',
+    desc:'Modelo escrito em MAIÚSCULAS, como vem no banner do anúncio',
+    teste:(n,cru) => modeloEmCaixaAlta(cru).length > 0 },
+
+  { id:'instagram_bio', origem:'instagram', confianca:'alta',
+    desc:'Veio pelo link da bio do perfil',
+    teste:n => /link (d[ao]|n[ao]) bio/.test(n) },
+
+  { id:'instagram_perfil', origem:'instagram', confianca:'media',
+    desc:'Citou o perfil, story ou publicação — chegou pelo Instagram, mas não por anúncio',
+    teste:n => /(vi|achei|encontrei|segui) (voces|vcs|a loja|o perfil|seu perfil|o insta)/.test(n)
+               || /(no|nos) (seu perfil|stories|story|storys|reels|feed)/.test(n)
+               || /vi (no|um|uns) (story|storys|stories|post|reels|video)/.test(n) },
+
+  { id:'indicacao', origem:'indicacao', confianca:'alta',
+    desc:'Citou quem indicou',
+    teste:n => /indic(ou|aram|acao)|indicacao d[eo]|(amigo|colega|primo|irmao|cunhado) (me falou|comprou|indicou)/.test(n) }
+];
+
+/* Devolve {origem, regra, confianca} ou null quando nenhuma regra casa. */
+function classificarOrigem(texto){
+  const cru = String(texto||'').trim();
+  if(!cru) return null;
+  const n = normTxt(cru);
+  for(const r of REGRAS_ORIGEM){
+    let bateu = false;
+    try{ bateu = r.teste(n, cru); }catch(e){ bateu = false; }
+    if(bateu) return {origem: r.origem, regra: r.id, confianca: r.confianca};
+  }
+  return null;
+}
+
+/* Aplica a classificação num lead. NUNCA passa por cima de origem definida na
+   mão — decisão humana ganha da regra, sempre. */
+function aplicarClassificacao(lead){
+  if(lead.origemManual) return lead;
+  const c = classificarOrigem(lead.primeiraMensagem);
+  if(!c) return lead;
+  lead.origem = c.origem;
+  lead.origemAuto = c.regra;
+  lead.origemConfianca = c.confianca;
+  return lead;
 }
 
 /* Merge incremental: campo ausente no `novo` NUNCA apaga o que já existe.
@@ -602,6 +724,11 @@ function mesclarLead(atual, novo){
   // Sem ela, um lead marcado 'perdido' sumiria de todas as etapas por onde
   // passou e o funil mostraria menos gente no topo do que realmente entrou.
   r.etapaMaxRank = Math.max(atual.etapaMaxRank ?? -1, ETAPA_RANK[r.etapa] ?? -1);
+  // Classifica a origem sozinho a partir da primeira mensagem do cliente.
+  // Se a varredura já mandou a origem explícita, ela vale; a regra só preenche
+  // o que veio vazio ou o que ela mesma tinha preenchido antes.
+  if(r.primeiraMensagem && !r.origemManual &&
+     (!novo.origem || r.origem === 'desconhecida' || r.origemAuto)) aplicarClassificacao(r);
   return r;
 }
 
@@ -840,6 +967,7 @@ function preencherFiltros(){
   $('f-etapa').innerHTML    = opts(ETAPAS, 'Todas as etapas');
   $('f-rep-vend').innerHTML = opts(VENDEDORAS, 'Todas as vendedoras');
   $('f-ag-vend').innerHTML  = opts(VENDEDORAS, 'Todas as vendedoras');
+  $('f-aut-vend').innerHTML = opts(VENDEDORAS, 'Todas as vendedoras');
 }
 
 function leadsFiltrados(){
@@ -922,6 +1050,12 @@ function abrirLead(fone){
       ${TAGS.map(t=>`<label class="chk ${(l.tags||[]).includes(t.id)?'on':''}" title="${esc(t.desc)}"
         onclick="this.classList.toggle('on')"><input type="checkbox" data-tag="${t.id}" ${(l.tags||[]).includes(t.id)?'checked':''}>${esc(t.nome)}</label>`).join('')}
     </div></div>
+    <div class="campo">
+      <label>Primeira mensagem do cliente ${l.origemAuto
+        ? `· classificada pela regra <b style="color:var(--ou2)">${esc(l.origemAuto)}</b> (confiança ${esc(l.origemConfianca||'—')})`
+        : l.origemManual ? '· origem definida na mão' : '· nenhuma regra casou'}</label>
+      <textarea class="inp" id="d-primeira" style="min-height:70px;" placeholder="Cole aqui a 1ª mensagem que o cliente mandou — é dela que a origem é lida">${esc(l.primeiraMensagem||'')}</textarea>
+    </div>
     <div class="campo"><label>Observações</label><textarea class="inp" id="d-obs" style="min-height:80px;">${esc(l.obs||'')}</textarea></div>
 
     <div class="hist">
@@ -978,8 +1112,13 @@ async function salvarDrawer(){
     agendadoHora: $('d-hora').value.trim(),
     compareceu: compVal === 'sim' ? true : compVal === 'nao' ? false : null,
     obs: $('d-obs').value.trim(),
+    primeiraMensagem: $('d-primeira').value.trim(),
     tags
   };
+  // Trocar a origem na ficha é decisão humana: trava a classificação
+  // automática para este lead e nenhuma reclassificação futura mexe nele.
+  if(novo.origem !== l.origem){ novo.origemManual = true; novo.origemAuto = ''; novo.origemConfianca = ''; }
+  else if(!novo.origemManual && novo.primeiraMensagem) aplicarClassificacao(novo);
   // Edição manual é decisão explícita: substitui as tags, não soma, e pode
   // puxar a etapa para trás. Por isso não passa pelo mesclarLead.
   novo.bloquearRepescagem = tags.some(t => TAGS_BLOQUEIO.includes(t));
@@ -1055,7 +1194,8 @@ function precoDe(modelo){
   return null;
 }
 const ENTREGA_GRATIS_DDD = ['62'];
-const HORARIO_LOJA = 'de segunda a sexta das 9h às 18h e no sábado das 9h às 13h';
+const HORARIO_LOJA  = 'de segunda a sexta das 9h às 18h e no sábado das 9h às 13h';
+const ENDERECO_LOJA = 'Avenida C-206, 060, Jd América — Goiânia/GO';
 
 /* As filas, em ordem de prioridade. Um lead entra na PRIMEIRA que casar —
    nunca aparece em duas, senão a mesma pessoa seria chamada duas vezes. */
@@ -1139,6 +1279,197 @@ function sugestaoTexto(l, fila){
 
   if(fila === 'localizacao') linhas.push(`Estamos aqui ${HORARIO_LOJA}, se quiser dar uma passadinha para experimentar.`);
   return linhas.join('\n\n');
+}
+
+/* ══════════════════ AUTOMAÇÕES DE VISITA MARCADA ══════════════════
+   Estas filas NÃO são repescagem e de propósito NÃO consomem o teto de 3.
+   Repescagem é abordagem fria: a loja correndo atrás de quem sumiu.
+   Lembrete é confirmação de um compromisso que o próprio cliente marcou —
+   tratar os dois com a mesma trava faria a loja deixar de confirmar visita
+   por causa de mensagem antiga, que é o oposto do que se quer.
+   O que trava aqui é outra coisa: cada lembrete só sai UMA vez por lead. */
+
+const AUTOMACOES = [
+  {
+    id:'vespera', nome:'Confirmar quem vem amanhã', quando:'Na véspera',
+    desc:'Marcou de vir amanhã. A confirmação na véspera é o que separa visita marcada de visita realizada.',
+    filtro: (l, d) => l.agendadoPara === d.amanha,
+    texto: l => {
+      const p = (l.nome||'').trim().split(/\s+/)[0];
+      const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
+      return [
+        `${saudacao()}${p ? ', ' + p : ''}!`,
+        `Passando para confirmar: a gente combinou sua visita para amanhã${l.agendadoHora ? ', às ' + l.agendadoHora : ''}.`,
+        item ? `Vou deixar o ${item} separado aqui em seu nome.` : 'Vou deixar tudo separado para você experimentar.',
+        'Está de pé?'
+      ].join('\n\n');
+    }
+  },
+  {
+    id:'hoje', nome:'Avisar quem vem hoje', quando:'Na manhã do dia',
+    desc:'O dia combinado é hoje. Sai de manhã, com o endereço junto para o cliente não ter que procurar.',
+    filtro: (l, d) => l.agendadoPara === d.hoje,
+    texto: l => {
+      const p = (l.nome||'').trim().split(/\s+/)[0];
+      const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
+      return [
+        `${saudacao()}${p ? ', ' + p : ''}!`,
+        `Hoje é o dia que a gente combinou${l.agendadoHora ? ', às ' + l.agendadoHora : ''}.`,
+        item ? `Estou com o ${item} separado aqui esperando você.` : 'Está tudo separado aqui esperando você.',
+        `Estamos em ${ENDERECO_LOJA}, ${HORARIO_LOJA}. Me chama quando estiver saindo?`
+      ].join('\n\n');
+    }
+  },
+  {
+    id:'noshow', nome:'Quem não apareceu ontem', quando:'No dia seguinte',
+    desc:'A data passou e ninguém marcou o comparecimento. Reabre a conversa sem cobrança e já oferece outro dia.',
+    filtro: (l, d) => l.agendadoPara && l.agendadoPara < d.hoje && l.compareceu !== true,
+    texto: l => {
+      const p = (l.nome||'').trim().split(/\s+/)[0];
+      const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
+      return [
+        `${saudacao()}${p ? ', ' + p : ''}!`,
+        `A gente tinha combinado para ${dataBonita(l.agendadoPara)} e acabou não dando certo — sem problema nenhum.`,
+        item ? `Quer que eu deixe o ${item} separado para outro dia?` : 'Quer marcar outro dia?',
+        'Qual dia fica melhor para você?'
+      ].join('\n\n');
+    }
+  }
+];
+
+const jaRecebeuLembrete = (l, tipo) => (l.lembretes||[]).some(x => x && x.tipo === tipo);
+
+function montarAutomacoes(vendFiltro){
+  const d = {
+    hoje: hoje(),
+    amanha: new Date(Date.now() + 86400000).toISOString().slice(0,10)
+  };
+  return AUTOMACOES.map(a => {
+    const itens = todosLeads().filter(l => {
+      if(vendFiltro && l.vendedora !== vendFiltro) return false;
+      if(!l.agendadoPara) return false;
+      if(l.compareceu === true || ['vendido','perdido'].includes(l.etapa)) return false;
+      if((l.tags||[]).includes('nao_cliente')) return false;   // única trava que vale aqui
+      if(jaRecebeuLembrete(l, a.id)) return false;             // cada lembrete sai uma vez só
+      return a.filtro(l, d);
+    }).sort((x,y) => String(x.agendadoPara).localeCompare(String(y.agendadoPara)));
+    return {...a, itens};
+  });
+}
+const contarAutomacoes = () => montarAutomacoes('').reduce((s,a) => s + a.itens.length, 0);
+
+async function registrarLembrete(fone, tipo){
+  const l = LEADS[fone];
+  if(!l) return;
+  const novo = {...l, lembretes: [...(l.lembretes||[]), {tipo, data: hoje(), por: USUARIO || 'painel'}]};
+  try{
+    await salvarLead(novo);
+    toast('Lembrete registrado — não vai sair de novo para este cliente');
+    render();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+function renderAutomacoes(){
+  const vf = $('f-aut-vend').value;
+  const filas = montarAutomacoes(vf);
+  const total = filas.reduce((s,a) => s + a.itens.length, 0);
+  const rep = contarRepescagem();
+
+  $('aut-resumo').innerHTML = `
+    <div class="tiles" style="margin-bottom:0;">
+      <div class="tile"><div class="lbl">Lembretes a enviar</div><div class="val">${total}</div>
+        <div class="hint">visitas marcadas · não consome o teto</div></div>
+      <div class="tile"><div class="lbl">Repescagem do dia</div><div class="val">${rep}</div>
+        <div class="hint">conversas frias · teto de 3 por cliente</div></div>
+      <div class="tile"><div class="lbl">Classificados sozinhos</div><div class="val">${todosLeads().filter(l=>l.origemAuto).length}</div>
+        <div class="hint">origem lida da 1ª mensagem</div></div>
+    </div>`;
+
+  if(!total){
+    $('automacoes').innerHTML = `<div class="vazio"><strong>Nenhum lembrete para enviar</strong>
+      Aqui aparecem quem combinou de vir amanhã, quem vem hoje e quem não apareceu.
+      Marque a data na ficha do lead em <b>Combinou de vir em</b>.</div>`;
+    return;
+  }
+
+  $('automacoes').innerHTML = filas.filter(a => a.itens.length).map(a => `
+    <div class="fila">
+      <div class="fila-head">
+        <div><div class="fila-tit">${esc(a.nome)} <span class="pill">${esc(a.quando)}</span></div>
+             <div class="fila-desc">${esc(a.desc)}</div></div>
+        <div class="fila-cont">${a.itens.length}</div>
+      </div>
+      ${a.itens.map(l => `
+        <div class="rep-item">
+          <div>
+            <div class="rep-topo">
+              <span class="rep-nome">${esc(l.nome || foneBonito(l.telefone))}</span>
+              <span class="pill">${esc(l.vendedora)}</span>
+              <span class="pill pill-am">${dataBonita(l.agendadoPara)}${l.agendadoHora ? ' às ' + esc(l.agendadoHora) : ''}</span>
+            </div>
+            <div class="rep-meta">
+              ${esc([l.modelo, l.cor, l.numeracao && ('nº '+l.numeracao)].filter(Boolean).join(' · ') || 'sem modelo definido')}
+              · ${foneBonito(l.telefone)}
+            </div>
+            <div class="rep-sug">${esc(a.texto(l))}</div>
+          </div>
+          <div class="rep-acoes">
+            <a class="btn btn-sm" href="https://wa.me/${esc(l.telefone)}?text=${encodeURIComponent(a.texto(l))}" target="_blank" rel="noopener">Abrir no WhatsApp</a>
+            <button class="btn btn-sm btn-ok" onclick="registrarLembrete('${esc(l.telefone)}','${esc(a.id)}')">Marcar como enviado</button>
+            <button class="btn btn-sm" onclick="abrirLead('${esc(l.telefone)}')">Abrir ficha</button>
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+/* Roda as regras de origem sobre a base inteira. Serve para quando um padrão
+   novo é adicionado — reclassifica o histórico em vez de só valer daqui pra frente. */
+async function reclassificarTudo(){
+  const alvos = todosLeads().filter(l => l.primeiraMensagem && !l.origemManual);
+  if(!alvos.length){ toast('Nenhum lead tem a primeira mensagem gravada ainda', true); return; }
+  let mudou = 0;
+  const lote = db.batch();
+  for(const l of alvos){
+    const antes = l.origem;
+    const novo = aplicarClassificacao({...l});
+    if(novo.origem !== antes || novo.origemAuto !== l.origemAuto){
+      LEADS[l.telefone] = novo;
+      lote.set(db.collection('crm_leads').doc(l.telefone), novo, {merge:true});
+      mudou++;
+    }
+  }
+  try{
+    await lote.commit();
+    toast(`${alvos.length} leads reavaliados · ${mudou} mudaram de origem`);
+    render();
+  }catch(e){ toast('Erro: ' + e.message, true); }
+}
+
+/* Leads que a regra não conseguiu classificar ou classificou com confiança
+   média — a fila de revisão humana. Sem isso a automação erra em silêncio. */
+function renderRevisao(){
+  const duvidosos = todosLeads().filter(l =>
+    l.primeiraMensagem && !l.origemManual &&
+    (!l.origemAuto || l.origemConfianca === 'media'));
+  $('tag-revisao').textContent = `${duvidosos.length} para conferir`;
+  if(!duvidosos.length){
+    $('revisao').innerHTML = `<div class="vazio"><strong>Nada para conferir</strong>
+      Toda primeira mensagem gravada casou com uma regra de alta confiança.</div>`;
+    return;
+  }
+  $('revisao').innerHTML = `<div class="tab-wrap"><table class="tab"><thead><tr>
+      <th>Cliente</th><th>Primeira mensagem do cliente</th><th>Regra</th><th>Origem</th>
+    </tr></thead><tbody>
+    ${duvidosos.slice(0,80).map(l => `<tr onclick="abrirLead('${esc(l.telefone)}')">
+      <td><div class="t-nome">${esc(l.nome || 'Sem nome')}</div><div class="t-fone">${foneBonito(l.telefone)}</div></td>
+      <td style="max-width:420px;">${esc(String(l.primeiraMensagem).slice(0,220))}</td>
+      <td>${l.origemAuto
+            ? `<span class="pill pill-am">${esc(l.origemAuto)}</span>`
+            : '<span class="pill">nenhuma regra casou</span>'}</td>
+      <td><span class="pill"><span class="pill-dot" style="background:${ORIGEM_COR[l.origem]||'var(--o5)'}"></span>${esc(ORIGEM_NOME[l.origem]||'—')}</span></td>
+    </tr>`).join('')}
+    </tbody></table></div>
+    ${duvidosos.length > 80 ? `<div class="card-sub" style="margin-top:12px;">Mostrando 80 de ${duvidosos.length}.</div>` : ''}`;
 }
 
 function renderRepescagem(){
@@ -1312,7 +1643,7 @@ const CAMPOS_ACEITOS = new Set([
   'telefone','nome','vendedora','origem','campanha','modelo','cor','numeracao','etapa','tags',
   'primeiroContato','ultimaCliente','ultimaLoja','msgsCliente','msgsLoja','agendadoPara',
   'agendadoHora','compareceu','valorVenda','dataVenda','repescagens','bloquearRepescagem',
-  'motivoBloqueio','obs'
+  'motivoBloqueio','obs','primeiraMensagem','origemManual','lembretes'
 ]);
 
 async function importarPayload(payload){
@@ -1440,6 +1771,26 @@ function exportarCSV(){
   toast(`${ls.length} leads exportados`);
 }
 
+function verRegras(){
+  const usos = {};
+  for(const l of todosLeads()) if(l.origemAuto) usos[l.origemAuto] = (usos[l.origemAuto]||0) + 1;
+  const linhas = REGRAS_ORIGEM.map(r =>
+    `<tr><td><span class="pill">${esc(r.id)}</span></td>
+      <td>${esc(r.desc)}</td>
+      <td><span class="pill"><span class="pill-dot" style="background:${ORIGEM_COR[r.origem]}"></span>${esc(ORIGEM_NOME[r.origem])}</span></td>
+      <td><span class="pill ${r.confianca==='alta'?'pill-ok':'pill-am'}">${esc(r.confianca)}</span></td>
+      <td class="tnum">${usos[r.id]||0}</td></tr>`).join('');
+  $('revisao').innerHTML = `<div class="tab-wrap"><table class="tab"><thead><tr>
+      <th>Regra</th><th>O que ela reconhece</th><th>Classifica como</th><th>Confiança</th><th class="tnum">Leads</th>
+    </tr></thead><tbody>${linhas}</tbody></table></div>
+    <div class="card-sub" style="margin-top:14px;">
+      Testadas de cima para baixo; a primeira que casar vence. O template do anúncio veiculado no
+      Instagram é testado <b>antes</b> das regras de Instagram orgânico, senão viraria orgânico errado.
+      Para adicionar um padrão novo, edite <span class="mono">REGRAS_ORIGEM</span> no crm.html e clique em Reclassificar tudo.
+    </div>
+    <div class="filtros" style="margin-top:16px;"><button class="btn btn-sm" onclick="renderRevisao()">Voltar para a conferência</button></div>`;
+}
+
 /* API pública — o Claude chama isto direto no console desta aba. */
 window.CRM = {
   importar: async (payload) => { const r = await importarPayload(payload); render(); return r; },
@@ -1451,6 +1802,11 @@ window.CRM = {
               tentativas: tentativas(l), sugestao: sugestaoTexto(l, f.id)
             }))})).filter(f => f.clientes.length),
   resumo:   () => metricas(),
+  classificar: (texto) => classificarOrigem(texto),
+  regras:   () => REGRAS_ORIGEM.map(r => ({id:r.id, origem:r.origem, confianca:r.confianca, reconhece:r.desc})),
+  lembretes: (vend) => montarAutomacoes(vend || '').map(a => ({fila: a.nome, quando: a.quando,
+              clientes: a.itens.map(l => ({telefone:l.telefone, nome:l.nome, vendedora:l.vendedora,
+                                           visita:l.agendadoPara, texto:a.texto(l)}))})).filter(a => a.clientes.length),
   recarregar: async () => { await carregarDados(); render(); return 'ok'; },
   vocabulario: {vendedoras: VENDEDORAS, origens: ORIGENS.map(o=>o.id), etapas: ETAPAS.map(e=>e.id), tags: TAGS.map(t=>t.id)}
 };
@@ -1475,7 +1831,11 @@ FORMATO
     "leads": [{
       "telefone":        "62991234567",    obrigatório; aceita qualquer formatação
       "nome":            "Danilo",
+      "primeiraMensagem":"Olá, vim no Instagram e quero saber mais informações sobre o LOAFER DUBAI",
+                                           1ª mensagem do cliente, TEXTO CRU. O CRM lê a origem
+                                           dela sozinho — mande sempre que conseguir ler.
       "origem":          ${JSON.stringify(ORIGENS.map(o=>o.id))},
+                                           opcional — só mande se a regra automática errar
       "campanha":        "LOAFER DUBAI",   modelo em maiúsculas do banner do anúncio
       "modelo":          "Loafer Dubai",
       "cor":             "Preto",
@@ -1505,7 +1865,22 @@ REGRAS DE GRAVAÇÃO
   · "msgsCliente"/"msgsLoja" ficam com o MAIOR valor entre o salvo e o enviado.
   · "repescagens" são deduplicadas por data — reimportar não infla o contador.
   · Estas situações BLOQUEIAM repescagem automaticamente:
-    ${TAGS.filter(t=>t.bloqueia).map(t=>t.id).join(', ')}`;
+    ${TAGS.filter(t=>t.bloqueia).map(t=>t.id).join(', ')}
+
+CLASSIFICAÇÃO AUTOMÁTICA DE ORIGEM
+
+  Mandando "primeiraMensagem", o CRM decide a origem sozinho por regra de texto.
+  As mensagens de anúncio do Meta são template fixo, então o casamento é exato —
+  não precisa de IA e não erra. Origem definida na mão na ficha nunca é sobrescrita.
+  O que a regra não conseguir classificar cai na fila de conferência, na aba Automações.
+
+O QUE A IA (CLAUDE) PRECISA DECIDIR, PORQUE REGRA NÃO RESOLVE
+
+  · etapa          até onde a conversa chegou
+  · tags           preço só em áudio, sem resposta, pediu desconto, já comprou...
+  · modelo/cor/numeracao   o que o cliente escolheu, escrito de mil formas
+  · agendadoPara   quando ele disse que vem ("sábado", "depois do dia 20")
+  · compareceu     se apareceu na loja`;
 
 /* ══════════════════ NAVEGAÇÃO ══════════════════ */
 
@@ -1523,9 +1898,11 @@ function render(){
     if(PAG_ATUAL === 'leads')      renderLeads();
     if(PAG_ATUAL === 'repescagem') renderRepescagem();
     if(PAG_ATUAL === 'agenda')     renderAgenda();
+    if(PAG_ATUAL === 'automacoes'){ renderAutomacoes(); renderRevisao(); }
     // badges continuam certos mesmo fora da aba
     $('bd-leads').textContent = leadsDoMes().length;
     $('bd-rep').textContent   = contarRepescagem();
+    $('bd-aut').textContent   = contarAutomacoes();
     $('bd-ag').textContent    = todosLeads().filter(l => l.agendadoPara && l.agendadoPara <= hoje()
                                   && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa)).length;
   }catch(e){

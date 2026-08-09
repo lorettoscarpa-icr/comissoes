@@ -105,7 +105,77 @@ window.CRM.leads()         // todos os leads
 window.CRM.lead('62991234567')
 window.CRM.recarregar()    // relê o Firestore
 window.CRM.vocabulario     // valores válidos de vendedora, origem, etapa e tags
+window.CRM.classificar('Olá, vim no Instagram e quero saber mais')  // testa uma mensagem
+window.CRM.regras()        // as regras de origem e o que cada uma reconhece
+window.CRM.lembretes()     // filas de visita marcada, com o texto pronto
 ```
+
+### O que a regra resolve e o que precisa da IA
+
+| Campo | Quem decide |
+|---|---|
+| `origem` | **Regra de texto** — template de anúncio é exato |
+| `etapa` | IA — até onde a conversa chegou |
+| `tags` | IA — preço só em áudio, sem resposta, pediu desconto, já comprou |
+| `modelo` · `cor` · `numeracao` | IA — o cliente escreve de mil formas |
+| `agendadoPara` | IA — "sábado", "depois do dia 20" viram data |
+| `compareceu` | IA — se apareceu na loja |
+
+---
+
+## Classificação automática de origem
+
+A origem do lead é lida da **primeira mensagem do cliente**, por regra de texto — não por
+alguém marcar nada, e sem IA.
+
+O motivo é que as mensagens de anúncio do Meta são **template fixo**: chegam sempre com o
+mesmo texto. Casar padrão nisso é exato, custa zero e nunca inventa. IA num problema
+desses só adicionaria erro.
+
+| Regra | Reconhece | Vira |
+|---|---|---|
+| `anuncio_interesse` | "quero / tenho interesse em saber mais informações" | Anúncio |
+| `anuncio_cidade` | "sou de Goiânia e quero saber mais" | Anúncio |
+| `anuncio_instagram` | "vim no Instagram e quero saber mais" | Anúncio |
+| `anuncio_modelo_caps` | modelo escrito em MAIÚSCULAS, como no banner | Anúncio |
+| `instagram_bio` | "vim do link da bio" | Instagram orgânico |
+| `instagram_perfil` | citou perfil, story, reels ou "achei vocês no insta" | Instagram orgânico |
+| `indicacao` | "me indicou", "meu amigo comprou aí" | Indicação |
+
+São testadas de cima para baixo e a primeira que casar vence. **A ordem importa:** o
+template do anúncio veiculado no Instagram é testado *antes* das regras de Instagram
+orgânico — senão todo lead de anúncio do Instagram viraria orgânico.
+
+Três garantias:
+
+- **Origem definida na mão nunca é sobrescrita.** Mexeu na ficha, trava.
+- **O que nenhuma regra classificou cai na fila de conferência** (aba Automações), junto
+  com o que casou só com confiança média. A automação não erra em silêncio.
+- **`Reclassificar tudo`** roda as regras sobre a base inteira, então padrão novo vale
+  também para o histórico — não só daqui pra frente.
+
+Para adicionar um padrão: inclua a frase em `REGRAS_ORIGEM`, no `crm.html`, e clique em
+Reclassificar tudo.
+
+---
+
+## Automações de visita marcada
+
+Três filas na aba **Automações**, com o texto pronto e link direto pro WhatsApp:
+
+| Fila | Quando | Para quê |
+|---|---|---|
+| Confirmar quem vem amanhã | Na véspera | É o que separa visita marcada de visita realizada |
+| Avisar quem vem hoje | De manhã | Sai com o endereço junto |
+| Quem não apareceu ontem | No dia seguinte | Reabre sem cobrança e já oferece outro dia |
+
+**Estas filas não consomem o teto de 3 repescagens, de propósito.** Repescagem é a loja
+correndo atrás de quem sumiu — por isso tem teto. Lembrete é confirmar um compromisso que
+o próprio cliente marcou. Travar os dois junto faria a loja deixar de confirmar uma visita
+por causa de mensagem antiga, que é o contrário do que se quer.
+
+A trava aqui é outra: **cada lembrete sai uma vez só por cliente**. Quem está marcado como
+`nao_cliente` fica de fora.
 
 ---
 

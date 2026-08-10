@@ -199,6 +199,51 @@ cadastrado, o nome exato vence e a dúvida acaba.
 
 ---
 
+## Data de visita e data de compra são coisas diferentes
+
+"Vou passar aí sábado" e "compro dia 20" são compromissos distintos, e o campo
+`tipoAgendamento` separa os dois:
+
+| Tipo | O que muda |
+|---|---|
+| **Vir à loja** | Mensagem leva o endereço e o horário. Falta vira cobrança. |
+| **Fechar pedido** | Mensagem fala em finalizar o pedido, **sem endereço**. Não gera cobrança de falta, porque ele nunca prometeu aparecer. |
+
+Sem essa separação, quem marcou compra para receber em casa recebia o endereço da loja e
+era contado como no-show.
+
+---
+
+## Ordem das filas: o mais recente primeiro
+
+O briefing pede "ordem sempre do mais recente para o mais antigo", e a direção **muda
+conforme a ação**:
+
+- **Está esperando resposta** → quem espera **há mais tempo** primeiro. É dívida acumulando.
+- **Filas frias** (sumiu, não apareceu, parou na numeração) → o **mais recente** primeiro.
+  Quanto mais fresco o esfriamento, maior a chance de resposta.
+
+> **Corrigido:** tudo vinha do mais antigo para o mais novo, então a repescagem começava
+> por quem sumiu há meses e deixava para depois quem sumiu ontem.
+
+### Quem espera resposta não é conversa fria
+
+O filtro de cada fila olhava a última mensagem **da loja**, então alguém que respondeu
+ontem continuava parecendo frio porque a loja tinha escrito há uma semana — e receberia
+*"ainda tem interesse?"* logo depois de fazer uma pergunta. Na base de teste isso pegava
+**38 de 87** da fila.
+
+Agora quem escreveu por último sai das filas frias e vai para a ação de **responder**, que
+tem prioridade sobre tudo.
+
+### Quando um lead entra na fila fria
+
+Depois de **2 dias** de silêncio (`DIAS_ESFRIOU`). Quem esfriou ontem só entra amanhã — de
+propósito, para não cobrar quem ainda está pensando. A ação de *responder* não tem
+carência: aparece na hora.
+
+---
+
 ## Meu dia — o CRM diz o que fazer
 
 A vendedora não escolhe fila nem aba. Abre em **Meu dia**, vê uma linha por cliente na

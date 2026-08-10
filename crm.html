@@ -316,6 +316,10 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
           <input class="busca" id="mv-fone" placeholder="Telefone do cliente" inputmode="tel">
           <input class="inp" id="mv-data" type="date" style="margin:0;width:auto;">
           <input class="inp" id="mv-hora" placeholder="15:00" style="margin:0;width:90px;">
+          <select class="sel" id="mv-tipo">
+            <option value="visita">Vir à loja</option>
+            <option value="compra">Fechar pedido</option>
+          </select>
           <button class="btn btn-sm btn-ok" onclick="marcarVisitaRapido()">Marcar visita</button>
         </div>
         <div id="mv-res" class="card-sub" style="margin:12px 0 0;"></div>
@@ -784,6 +788,9 @@ function situacaoVisita(l){
   if(l.compareceu === true)  return {veio:true,  fonte: l.compareceuFonte || 'confirmado'};
   if(l.compareceu === false) return {veio:false, fonte: l.compareceuFonte || 'confirmado'};
 
+  // Quem marcou data de COMPRA não prometeu aparecer: não há comparecimento a deduzir.
+  if(!ehVisita(l)) return {veio:null, fonte:'indefinido'};
+
   if(l.agendadoPara && l.posVendaEnviado && canalDe(l) !== 'entrega')
     return {veio:true, fonte:'posvenda'};
 
@@ -807,6 +814,15 @@ const FONTE_VISITA = {
    ENTREGA — fechou sem pisar na loja, recebeu em casa
    Misturar as duas faz a taxa de comparecimento mentir e esconde qual das duas
    rotas cada vendedora realmente domina. */
+/* "Vou passar aí sábado" e "compro dia 20" são compromissos diferentes. Tratar
+   os dois como visita fazia o CRM mandar o endereço da loja para quem vai
+   receber em casa — e contar como falta quem nunca prometeu aparecer. */
+const TIPOS_AGENDA = [
+  {id:'visita', nome:'Vir à loja',    desc:'Combinou de passar na loja'},
+  {id:'compra', nome:'Fechar pedido', desc:'Marcou o dia de comprar, sem necessariamente vir'}
+];
+const ehVisita = l => (l.tipoAgendamento || 'visita') === 'visita';
+
 const CANAIS_VENDA = [
   {id:'loja',    nome:'Na loja',     desc:'Veio, experimentou e fechou'},
   {id:'entrega', nome:'Por entrega', desc:'Fechou sem vir — recebeu em casa'}
@@ -945,7 +961,7 @@ function leadVazio(fone){
     etapa: 'novo', tags: [],
     primeiroContato: hoje(), ultimaCliente: '', ultimaLoja: '',
     msgsCliente: 0, msgsLoja: 0,
-    agendadoPara: '', agendadoHora: '',
+    agendadoPara: '', agendadoHora: '', tipoAgendamento: 'visita',
     compareceu: null, compareceuFonte: '', valorVenda: 0, dataVenda: '', motivoPerda: '',
     reserva: null,
     primeiroContatoEm: '', primeiraRespostaEm: '',
@@ -1150,6 +1166,11 @@ function mesclarLead(atual, novo){
 
 /* Até onde este lead chegou — usado pelo funil e pelas filas. */
 const rankAlcancado = l => Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK[l.etapa] ?? -1);
+
+/* O cliente falou por último e a loja não respondeu. Quem está assim NÃO é
+   conversa fria: é gente com a mão levantada esperando. */
+const esperandoResposta = l => !!l.ultimaCliente &&
+  (!l.ultimaLoja || String(l.ultimaCliente) > String(l.ultimaLoja));
 
 const conflitosAbertos = l => (l.conflitos||[]).filter(c => c && !c.resolvido);
 const temConflito = l => conflitosAbertos(l).length > 0;
@@ -2207,9 +2228,12 @@ function abrirLead(fone){
       <div class="campo"><label>Valor da venda</label><input class="inp" id="d-valor" type="number" step="0.01" value="${Number(l.valorVenda||0)||''}"></div>
     </div>
     <div class="campo-2">
-      <div class="campo"><label>Combinou de vir em</label><input class="inp" id="d-agenda" type="date" value="${esc(l.agendadoPara||'')}"></div>
+      <div class="campo"><label>Combinou para o dia</label><input class="inp" id="d-agenda" type="date" value="${esc(l.agendadoPara||'')}"></div>
       <div class="campo"><label>Hora</label><input class="inp" id="d-hora" value="${esc(l.agendadoHora||'')}" placeholder="15:00"></div>
     </div>
+    <div class="campo"><label>O que ele combinou</label><select class="sel" id="d-tipoag">
+      ${TIPOS_AGENDA.map(t=>`<option value="${t.id}" ${t.id===(l.tipoAgendamento||'visita')?'selected':''}>${esc(t.nome)} — ${esc(t.desc)}</option>`).join('')}
+    </select></div>
     <div class="campo-2">
       <div class="campo"><label>Rota da venda</label><select class="sel" id="d-canal">
         <option value="">Ainda não vendeu</option>
@@ -2333,6 +2357,7 @@ async function salvarDrawer(){
     valorVenda: Number($('d-valor').value || 0),
     agendadoPara: $('d-agenda').value,
     agendadoHora: $('d-hora').value.trim(),
+    tipoAgendamento: $('d-tipoag') ? $('d-tipoag').value : (l.tipoAgendamento||'visita'),
     compareceu: compVal === 'sim' ? true : compVal === 'nao' ? false : null,
     compareceuFonte: compVal ? 'confirmado' : '',
     obs: $('d-obs').value.trim(),
@@ -2609,12 +2634,19 @@ function montarFilas(vendFiltro){
     const itens = todosLeads().filter(l => {
       if(usados.has(l.telefone)) return false;
       if(vendFiltro && l.vendedora !== vendFiltro) return false;
+      // Quem escreveu por último NÃO é conversa fria. O filtro de cada fila olha
+      // a última mensagem da LOJA, então alguém que respondeu ontem continuava
+      // parecendo frio porque a loja tinha escrito há uma semana — e receberia
+      // "ainda tem interesse?" logo depois de fazer uma pergunta. Esses vão para
+      // a ação de responder, no "Meu dia", que tem prioridade sobre tudo.
+      if(esperandoResposta(l)) return false;
       // Aberto agora continua na fila, apagado, para dar chance de desfazer
       if(!podeRepescar(l).ok && !ABERTOS_SESSAO.has(l.telefone)) return false;
       if(!f.filtro(l)) return false;
       usados.add(l.telefone);
       return true;
-    }).sort((a,b) => diasDesde(b.ultimaCliente) - diasDesde(a.ultimaCliente));
+    // Mais recente primeiro — mesma correção do "Meu dia".
+    }).sort((a,b) => diasDesde(a.ultimaCliente) - diasDesde(b.ultimaCliente));
     return {...f, itens};
   });
 }
@@ -2671,6 +2703,12 @@ const AUTOMACOES = [
     texto: l => {
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
+      if(!ehVisita(l)) return [
+        `${saudacao()}${p ? ', ' + p : ''}!`,
+        `A gente combinou de fechar seu pedido amanhã.`,
+        item ? `O ${item} está reservado em seu nome.` : 'Está tudo reservado em seu nome.',
+        'Posso deixar tudo pronto?'
+      ].join('\n\n');
       return [
         `${saudacao()}${p ? ', ' + p : ''}!`,
         `Passando para confirmar: a gente combinou sua visita para amanhã${l.agendadoHora ? ', às ' + l.agendadoHora : ''}.`,
@@ -2686,6 +2724,14 @@ const AUTOMACOES = [
     texto: l => {
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
+      // Endereço só para quem vem à loja. Mandar endereço para quem vai receber
+      // em casa confunde o cliente e faz a loja parecer desorganizada.
+      if(!ehVisita(l)) return [
+        `${saudacao()}${p ? ', ' + p : ''}!`,
+        `Hoje é o dia que a gente combinou de fechar seu pedido.`,
+        item ? `O ${item} está reservado em seu nome.` : 'Está tudo reservado em seu nome.',
+        'Quer que eu já finalize para você?'
+      ].join('\n\n');
       return [
         `${saudacao()}${p ? ', ' + p : ''}!`,
         `Hoje é o dia que a gente combinou${l.agendadoHora ? ', às ' + l.agendadoHora : ''}.`,
@@ -3045,7 +3091,7 @@ const CAMPOS_ACEITOS = new Set([
   'agendadoHora','compareceu','valorVenda','dataVenda','repescagens','bloquearRepescagem',
   'motivoBloqueio','obs','primeiraMensagem','origemManual','lembretes',
   'posVendaEnviado','canalVenda','motivoPerda','primeiroContatoEm','primeiraRespostaEm','reserva',
-  'numeracoesPedidas','compareceuFonte'
+  'numeracoesPedidas','compareceuFonte','tipoAgendamento'
 ]);
 
 async function importarPayload(payload){
@@ -3224,6 +3270,8 @@ window.CRM = {
               texto: x.acao.texto ? x.acao.texto(x.lead) : null})),
   acoes:    () => ACOES.map(a => ({id:a.id, prio:a.prio, titulo:a.titulo, consomeTeto:a.consomeTeto})),
   frescor:  () => frescor(),
+  esperando: () => todosLeads().filter(esperandoResposta).map(l => ({telefone:l.telefone,
+              nome:l.nome, vendedora:l.vendedora, desde:l.ultimaCliente})),
   hoje:     () => numerosDoDia(),
   catalogo: () => CATALOGO,
   definirCatalogo: async (itens) => {
@@ -3295,7 +3343,10 @@ FORMATO
       "ultimaLoja":      "2026-08-05",     última mensagem enviada PELA loja
       "msgsCliente":     12,               recebidas nessa conversa
       "msgsLoja":        9,
-      "agendadoPara":    "2026-08-12",     quando combinou de vir à loja
+      "agendadoPara":    "2026-08-12",     o dia que ele combinou
+      "tipoAgendamento": "visita | compra", vir à loja, ou fechar o pedido sem vir.
+                                           "compra" não gera cobrança de falta nem
+                                           recebe o endereço da loja na mensagem
       "agendadoHora":    "15:00",
       "compareceu":      true,             veio à loja — NÃO deduza de ter comprado
       "posVendaEnviado": true,             achou a mensagem automática de pós-venda na conversa
@@ -3408,8 +3459,7 @@ const ACOES = [
   {
     id:'responder', prio:1, rotulo:'Responder', tom:'er',
     titulo:'Está esperando resposta',
-    quando: l => !['vendido','perdido'].includes(l.etapa) && l.ultimaCliente
-                 && (!l.ultimaLoja || String(l.ultimaCliente) > String(l.ultimaLoja)),
+    quando: l => !['vendido','perdido'].includes(l.etapa) && esperandoResposta(l),
     porque: l => `Escreveu por último ${haQuantoTempo(l.ultimaCliente)} e a loja ainda não respondeu.`,
     // Sem texto sugerido de propósito: não dá para saber o que ele perguntou.
     texto: null, consomeTeto:false, ordem: l => diasDesde(l.ultimaCliente)
@@ -3417,7 +3467,7 @@ const ACOES = [
   {
     id:'visita_hoje', prio:2, rotulo:'Confirmar', tom:'am',
     titulo:'Vem à loja hoje',
-    quando: l => l.agendadoPara === hoje() && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa),
+    quando: l => ehVisita(l) && l.agendadoPara === hoje() && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa),
     porque: l => `Combinou de vir hoje${l.agendadoHora ? ' às ' + l.agendadoHora : ''}.`,
     texto: l => (AUTOMACOES.find(a=>a.id==='hoje')||{}).texto(l), consomeTeto:false
   },
@@ -3431,18 +3481,40 @@ const ACOES = [
   {
     id:'visita_amanha', prio:4, rotulo:'Confirmar', tom:'am',
     titulo:'Vem à loja amanhã',
-    quando: l => l.agendadoPara === new Date(Date.now()+86400000).toISOString().slice(0,10)
+    quando: l => ehVisita(l) && l.agendadoPara === new Date(Date.now()+86400000).toISOString().slice(0,10)
                  && l.compareceu !== true && !['vendido','perdido'].includes(l.etapa),
     porque: () => 'Confirmar na véspera é o que separa visita marcada de visita realizada.',
     texto: l => (AUTOMACOES.find(a=>a.id==='vespera')||{}).texto(l), consomeTeto:false
   },
   {
-    id:'nao_apareceu', prio:5, rotulo:'Remarcar', tom:'am',
+    id:'nao_apareceu', recentesPrimeiro:true, prio:5, rotulo:'Remarcar', tom:'am',
     titulo:'Marcou e não apareceu',
-    quando: l => l.agendadoPara && l.agendadoPara < hoje() && situacaoVisita(l).veio === false
+    quando: l => ehVisita(l) && l.agendadoPara && l.agendadoPara < hoje() && situacaoVisita(l).veio === false
                  && !['vendido','perdido'].includes(l.etapa),
     porque: l => `Tinha combinado para ${dataBonita(l.agendadoPara)} e não recebeu o pós-venda — não veio.`,
     texto: l => (AUTOMACOES.find(a=>a.id==='noshow')||{}).texto(l), consomeTeto:false
+  },
+  {
+    id:'compra_marcada', prio:4.5, rotulo:'Fechar', tom:'am',
+    titulo:'Marcou de comprar hoje',
+    quando: l => !ehVisita(l) && l.agendadoPara === hoje() && !['vendido','perdido'].includes(l.etapa),
+    porque: () => 'Ele mesmo escolheu esta data para fechar. É só finalizar.',
+    texto: l => (AUTOMACOES.find(a=>a.id==='hoje')||{}).texto(l), consomeTeto:false
+  },
+  {
+    id:'compra_atrasada', recentesPrimeiro:true, prio:5.2, rotulo:'Retomar', tom:'',
+    titulo:'Passou o dia que marcou para comprar',
+    quando: l => !ehVisita(l) && l.agendadoPara && l.agendadoPara < hoje()
+                 && !['vendido','perdido'].includes(l.etapa),
+    porque: l => `Tinha marcado ${dataBonita(l.agendadoPara)} para fechar e não fechou.`,
+    texto: l => {
+      const p = (l.nome||'').trim().split(/\s+/)[0];
+      const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
+      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+        `A gente tinha combinado ${dataBonita(l.agendadoPara)} para fechar seu pedido e acabou não dando certo — sem problema.`,
+        item ? `O ${item} ainda está reservado em seu nome.` : 'Ainda está tudo reservado em seu nome.',
+        'Quer que eu finalize agora?'].join('\n\n');
+    }, consomeTeto:false
   },
   {
     id:'reserva_vencendo', prio:5.5, rotulo:'Avisar', tom:'am',
@@ -3459,15 +3531,15 @@ const ACOES = [
     }, consomeTeto:false
   },
   {
-    id:'localizacao', prio:6, rotulo:'Chamar', tom:'',
+    id:'localizacao', recentesPrimeiro:true, prio:6, rotulo:'Chamar', tom:'',
     titulo:'Recebeu o endereço e não veio',
-    quando: l => rankAlcancado(l) >= ETAPA_RANK.localizacao && l.compareceu !== true
+    quando: l => !esperandoResposta(l) && rankAlcancado(l) >= ETAPA_RANK.localizacao && l.compareceu !== true
                  && !l.agendadoPara && diasDesde(l.ultimaLoja || l.ultimaCliente) >= DIAS_ESFRIOU,
     porque: l => `Já sabia onde é a loja e sumiu ${haQuantoTempo(l.ultimaLoja || l.ultimaCliente)}.`,
     texto: l => sugestaoTexto(l, 'localizacao'), consomeTeto:true
   },
   {
-    id:'marcar_visita', prio:7, rotulo:'Marcar dia', tom:'',
+    id:'marcar_visita', recentesPrimeiro:true, prio:7, rotulo:'Marcar dia', tom:'',
     titulo:'Já escolheu tudo, falta marcar o dia',
     quando: l => l.numeracao && l.modelo && !l.agendadoPara && l.compareceu !== true
                  && !['vendido','perdido'].includes(l.etapa) && rankAlcancado(l) >= ETAPA_RANK.numeracao,
@@ -3481,22 +3553,22 @@ const ACOES = [
     }, consomeTeto:true
   },
   {
-    id:'numeracao', prio:8, rotulo:'Fechar numeração', tom:'',
+    id:'numeracao', recentesPrimeiro:true, prio:8, rotulo:'Fechar numeração', tom:'',
     titulo:'Parou na numeração',
-    quando: l => l.etapa === 'numeracao' && diasDesde(l.ultimaCliente || l.ultimaLoja) >= DIAS_ESFRIOU,
+    quando: l => !esperandoResposta(l) && l.etapa === 'numeracao' && diasDesde(l.ultimaCliente || l.ultimaLoja) >= DIAS_ESFRIOU,
     porque: () => 'É a última pergunta antes de fechar — e é onde ele travou.',
     texto: l => sugestaoTexto(l, 'numeracao'), consomeTeto:true
   },
   {
-    id:'fotos', prio:9, rotulo:'Retomar', tom:'',
+    id:'fotos', recentesPrimeiro:true, prio:9, rotulo:'Retomar', tom:'',
     titulo:'Sumiu depois das fotos',
-    quando: l => ['novo','atendido','preco'].includes(l.etapa)
+    quando: l => !esperandoResposta(l) && ['novo','atendido','preco'].includes(l.etapa)
                  && diasDesde(l.ultimaCliente || l.ultimaLoja) >= DIAS_ESFRIOU,
     porque: l => `Recebeu fotos ou catálogo e não respondeu mais ${haQuantoTempo(l.ultimaCliente || l.ultimaLoja)}.`,
     texto: l => sugestaoTexto(l, 'fotos'), consomeTeto:true
   },
   {
-    id:'recompra', prio:10, rotulo:'Oferecer', tom:'ok',
+    id:'recompra', recentesPrimeiro:true, prio:10, rotulo:'Oferecer', tom:'ok',
     titulo:'Comprou faz tempo',
     quando: l => l.etapa === 'vendido' && l.dataVenda && diasDesde(l.dataVenda) >= 60
                  && !(l.tags||[]).includes('nao_cliente'),
@@ -3542,7 +3614,14 @@ function meuDia(){
     itens.push({lead: l, acao: a, feita: acaoFeitaHoje(l, a),
                 espera: a.ordem ? a.ordem(l) : diasDesde(l.ultimaCliente || l.ultimaLoja)});
   }
-  itens.sort((x,y) => x.acao.prio - y.acao.prio || y.espera - x.espera);
+  /* Dentro da mesma prioridade a direção MUDA conforme a ação:
+       quem espera resposta → o que espera HÁ MAIS TEMPO primeiro (é dívida acumulando)
+       fila fria           → o MAIS RECENTE primeiro, como o briefing pede: quanto
+                             mais fresco o esfriamento, maior a chance de resposta.
+     Antes tudo vinha do mais antigo, então a repescagem começava por quem sumiu
+     há meses e deixava para depois quem sumiu ontem — exatamente ao contrário. */
+  itens.sort((x,y) => x.acao.prio - y.acao.prio ||
+    (x.acao.recentesPrimeiro ? x.espera - y.espera : y.espera - x.espera));
   return itens;
 }
 
@@ -3640,7 +3719,8 @@ async function marcarVisitaRapido(){
     l.vendedora = minhaVendedora() || l.vendedora;
     l.donoDesde = hoje();
   }
-  const novo = {...l, agendadoPara: data, agendadoHora: hora, compareceu: null};
+  const tipo = ($('mv-tipo') && $('mv-tipo').value) || 'visita';
+  const novo = {...l, agendadoPara: data, agendadoHora: hora, tipoAgendamento: tipo, compareceu: null};
   if((ETAPA_RANK[novo.etapa] ?? 0) < ETAPA_RANK.agendado){
     novo.etapa = 'agendado';
     novo.etapaMaxRank = Math.max(novo.etapaMaxRank ?? -1, ETAPA_RANK.agendado);

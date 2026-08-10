@@ -1301,13 +1301,47 @@ async function carregarCentral(){
   }
 }
 
+/* Leitura AO VIVO dos leads, não uma foto do login.
+   Antes era um .get() único: quatro pessoas abriam às 9h e passavam o dia sem ver
+   o que as outras faziam. Pior que a tela velha era o que vinha depois — como o
+   salvamento manda o objeto inteiro da memória, e {merge:true} substitui array em
+   vez de somar, quem tivesse a cópia antiga apagava a repescagem que a colega
+   tinha acabado de registrar. O cliente então recebia duas mensagens no mesmo
+   dia, que é exatamente o que o teto existe para impedir.
+   A Central de Entregas já resolve assim; o CRM passa a fazer igual. */
+let _paraDeOuvir = null;
+
+function ouvirLeads(){
+  return new Promise((resolve, reject) => {
+    let primeiro = true;
+    if(_paraDeOuvir){ try{ _paraDeOuvir(); }catch(e){} }
+    _paraDeOuvir = db.collection('crm_leads').onSnapshot(snap => {
+      const novos = {};
+      snap.forEach(d => { novos[d.id] = migrarOrigem({...leadVazio(d.id), ...d.data(), telefone: d.id}); });
+      LEADS = novos;
+      if(primeiro){ primeiro = false; resolve(); return; }
+      // Chegou mudança de outra pessoa. Se uma ficha estiver aberta, não se
+      // fecha a tela por baixo de quem está digitando — só avisa.
+      if(LEAD_ABERTO && LEADS[LEAD_ABERTO]) toast('Este cliente acabou de ser atualizado — reabra a ficha para ver');
+      else render();
+    }, err => {
+      console.warn('Escuta dos leads caiu:', err.message);
+      if(primeiro) reject(err);
+    });
+  });
+}
+
 async function carregarDados(){
-  const [snapLeads, snapMsgs] = await Promise.all([
-    db.collection('crm_leads').get(),
-    db.collection('crm_msgs').get()
-  ]);
-  LEADS = {};
-  snapLeads.forEach(d => { LEADS[d.id] = migrarOrigem({...leadVazio(d.id), ...d.data(), telefone: d.id}); });
+  // Sem onSnapshot no ambiente, cai para leitura única — melhor um painel
+  // estático do que painel nenhum.
+  if(db.collection('crm_leads').onSnapshot){
+    await ouvirLeads();
+  }else{
+    const s1 = await db.collection('crm_leads').get();
+    LEADS = {};
+    s1.forEach(d => { LEADS[d.id] = migrarOrigem({...leadVazio(d.id), ...d.data(), telefone: d.id}); });
+  }
+  const snapMsgs = await db.collection('crm_msgs').get();
   MSGS_DIA = {};
   snapMsgs.forEach(d => { MSGS_DIA[d.id] = d.data() || {}; });
   try{
@@ -1340,6 +1374,12 @@ async function salvarLead(lead){
   lead.atualizadoPor = USUARIO || 'painel';
   LEADS[lead.telefone] = lead;
   await db.collection('crm_leads').doc(lead.telefone).set(lead, {merge:true});
+}
+
+/* Solta a escuta ao sair, senão a sessão anterior continua recebendo mudanças
+   e reescrevendo a tela de quem entrou depois. */
+function pararDeOuvir(){
+  if(_paraDeOuvir){ try{ _paraDeOuvir(); }catch(e){} _paraDeOuvir = null; }
 }
 
 /* ══════════════════ PERÍODO ══════════════════ */
@@ -3815,13 +3855,14 @@ function entrar(){
     })
     .finally(() => { $('li-btn').disabled = false; });
 }
-function sair(){ auth.signOut(); }
+function sair(){ pararDeOuvir(); auth.signOut(); }
 
 $('li-senha').addEventListener('keydown', e => { if(e.key === 'Enter') entrar(); });
 
 auth.onAuthStateChanged(async user => {
   $('auth-loading').style.display = 'none';
   if(!user){
+    pararDeOuvir();
     $('tela-login').classList.add('show');
     $('tela-app').style.display = 'none';
     return;

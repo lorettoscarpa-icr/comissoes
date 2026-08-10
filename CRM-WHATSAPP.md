@@ -161,6 +161,39 @@ gestão, não de código.
 
 ---
 
+## As quatro ao mesmo tempo
+
+O painel lê os leads **ao vivo** (`onSnapshot`), não uma foto do momento do login. Foi
+verificado com quatro abas logadas em contas diferentes: cada uma entra na sua carteira,
+e a mudança feita por uma aparece na outra sem recarregar.
+
+> **Corrigido:** antes era uma leitura única. Quatro pessoas abriam às 9h e passavam o dia
+> sem ver o que as outras faziam — e o pior vinha depois. Como o salvamento manda o objeto
+> inteiro da memória e `{merge:true}` **substitui** array em vez de somar, quem tivesse a
+> cópia antiga apagava a repescagem que a colega tinha acabado de registrar. O cliente
+> então recebia duas mensagens no mesmo dia: justamente o que o teto existe para impedir.
+>
+> Cenário coberto por teste: a gestão abre a ficha, a vendedora registra uma repescagem, a
+> gestão salva depois — e a repescagem sobrevive.
+
+Se alguém estiver com uma ficha aberta quando a mudança chega, a tela **não é trocada por
+baixo** de quem está digitando: aparece um aviso para reabrir a ficha.
+
+### Um detalhe que muda a operação
+
+As quatro têm **números de WhatsApp diferentes**, mas usam **uma conta só do Claude**. O
+próprio skill de atendimento avisa que a extensão cai quando há *"várias janelas com a
+extensão na mesma conta"* e recomenda deixar **uma só janela ativa**.
+
+Ou seja: **quatro varreduras simultâneas não funcionam.** A varredura roda de uma máquina
+por vez, uma conta de WhatsApp por vez.
+
+Isso não limita as vendedoras, porque **o CRM não precisa do Claude para funcionar**. As
+quatro usam o painel ao mesmo tempo, cada uma no seu celular, com a lista dela pronta. O
+Claude só entra na hora de varrer as conversas.
+
+---
+
 ## Confiança nos dados
 
 Duas coisas que o CRM faz para não mentir em silêncio.

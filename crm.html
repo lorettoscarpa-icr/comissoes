@@ -473,6 +473,12 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
     <!-- ───────── AGENDA ───────── -->
     <div class="pag" id="pag-agenda">
       <div class="slbl">Quem combinou de vir <span class="slbl-tag" id="tag-ag">—</span></div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        Você <b>não precisa marcar quem veio</b>. Todo cliente que compra recebe a mensagem automática
+        de pós-venda, então o CRM lê a conversa e conclui sozinho: <b>tem pós-venda, veio e comprou;
+        não tem, não veio</b>. Os botões abaixo servem só para corrigir uma exceção — quem veio,
+        experimentou e não levou nada, por exemplo.
+      </div>
       <div class="filtros">
         <select class="sel" id="f-ag-vend" onchange="renderAgenda()"></select>
       </div>
@@ -753,7 +759,48 @@ const DIAS_SEM = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quint
    conversa comprou; quem recebeu a localização e NÃO tem é exatamente quem vale
    chamar de volta. O Claude procura por estes textos durante a varredura e
    manda `posVendaEnviado: true`. */
-const MARCADORES_POSVENDA = ['Muito obrigada pela sua compra', 'Comunidade VIP'];
+/* Trechos estáveis da mensagem automática de pós-venda. O nome da vendedora e o
+   do cliente mudam, então a busca é por estes pedaços fixos — qualquer um basta. */
+const MARCADORES_POSVENDA = [
+  'Muito obrigada pela sua compra',
+  'Comunidade VIP',
+  'Conte comigo sempre que você precisar',
+  'novidades em primeira mão'
+];
+
+/* SITUAÇÃO DA VISITA — deduzida, não digitada.
+   A mensagem de pós-venda é automática, então a ausência dela numa conversa já
+   lida vale como "não veio / não comprou". Duas armadilhas tratadas aqui:
+
+   1. Ausência só prova algo se a varredura REALMENTE leu aquela conta depois da
+      visita. Sem essa trava, uma semana sem varredura marcaria todo mundo como
+      falta — inventando no-show que não houve.
+   2. O pós-venda prova COMPRA, não presença: venda por entrega também recebe.
+      Por isso a dedução de "veio" exige que não seja entrega.
+
+   Um dia de folga depois da data combinada, porque o pós-venda pode sair só no
+   fim do expediente. */
+function situacaoVisita(l){
+  if(l.compareceu === true)  return {veio:true,  fonte: l.compareceuFonte || 'confirmado'};
+  if(l.compareceu === false) return {veio:false, fonte: l.compareceuFonte || 'confirmado'};
+
+  if(l.agendadoPara && l.posVendaEnviado && canalDe(l) !== 'entrega')
+    return {veio:true, fonte:'posvenda'};
+
+  if(l.agendadoPara && l.agendadoPara < hoje() && !l.posVendaEnviado){
+    const varrida = VARREDURA && l.vendedora ? VARREDURA['v_' + l.vendedora] : null;
+    const limite = new Date(new Date(l.agendadoPara + 'T12:00:00').getTime() + 86400000)
+                     .toISOString().slice(0,10);
+    if(varrida && varrida.slice(0,10) >= limite) return {veio:false, fonte:'inferido'};
+    return {veio:null, fonte:'sem_varredura'};   // silêncio não é resposta
+  }
+  return {veio:null, fonte:'indefinido'};
+}
+const FONTE_VISITA = {
+  confirmado:'confirmado na mão', posvenda:'pós-venda na conversa',
+  inferido:'sem pós-venda depois da data', sem_varredura:'falta varrer a conversa',
+  indefinido:'—'
+};
 
 /* Duas rotas de venda, e elas não são a mesma coisa:
    LOJA    — o cliente veio, experimentou e fechou
@@ -777,7 +824,7 @@ function canalDe(l){
 /* Veio à loja? Só conta marcação explícita. NÃO se deduz do funil: uma venda de
    entrega chega em 'vendido' sem nunca ter pisado na loja, e deduzir pelo rank
    inflava a taxa de comparecimento com quem só recebeu em casa. */
-const veioALoja = l => l.compareceu === true;
+const veioALoja = l => situacaoVisita(l).veio === true;
 
 const MAX_REPESCAGENS = 3;   // teto por cliente, conforme o playbook de atendimento
 const DIAS_ESFRIOU     = 2;  // dias de silêncio antes de entrar na fila
@@ -899,7 +946,7 @@ function leadVazio(fone){
     primeiroContato: hoje(), ultimaCliente: '', ultimaLoja: '',
     msgsCliente: 0, msgsLoja: 0,
     agendadoPara: '', agendadoHora: '',
-    compareceu: null, valorVenda: 0, dataVenda: '', motivoPerda: '',
+    compareceu: null, compareceuFonte: '', valorVenda: 0, dataVenda: '', motivoPerda: '',
     reserva: null,
     primeiroContatoEm: '', primeiraRespostaEm: '',
     repescagens: [], bloquearRepescagem: false, motivoBloqueio: '',
@@ -2180,8 +2227,11 @@ function abrirLead(fone){
         ${MOTIVOS_PERDA.map(x=>`<option value="${x.id}" ${x.id===l.motivoPerda?'selected':''}>${esc(x.nome)} — ${esc(x.desc)}</option>`).join('')}
       </select>
     </div>
-    <div class="campo"><label>Veio à loja?</label><select class="sel" id="d-comp">
-      <option value="">Ainda não se sabe</option>
+    <div class="campo"><label>Veio à loja? <span style="color:var(--ou2);text-transform:none;letter-spacing:0;">${(() => {
+        const sv = situacaoVisita(l);
+        return sv.veio === null ? '' : `— o CRM concluiu que ${sv.veio ? 'veio' : 'não veio'} (${esc(FONTE_VISITA[sv.fonte])})`;
+      })()}</span></label><select class="sel" id="d-comp">
+      <option value="">Deixar o CRM concluir</option>
       <option value="sim" ${l.compareceu===true?'selected':''}>Sim, apareceu</option>
       <option value="nao" ${l.compareceu===false?'selected':''}>Não apareceu</option>
     </select></div>
@@ -2284,6 +2334,7 @@ async function salvarDrawer(){
     agendadoPara: $('d-agenda').value,
     agendadoHora: $('d-hora').value.trim(),
     compareceu: compVal === 'sim' ? true : compVal === 'nao' ? false : null,
+    compareceuFonte: compVal ? 'confirmado' : '',
     obs: $('d-obs').value.trim(),
     primeiraMensagem: $('d-primeira').value.trim(),
     canalVenda: $('d-canal').value,
@@ -2646,7 +2697,9 @@ const AUTOMACOES = [
   {
     id:'noshow', nome:'Quem não apareceu ontem', quando:'No dia seguinte',
     desc:'A data passou e ninguém marcou o comparecimento. Reabre a conversa sem cobrança e já oferece outro dia.',
-    filtro: (l, d) => l.agendadoPara && l.agendadoPara < d.hoje && l.compareceu !== true,
+    // Só cobra quem a dedução diz que não veio. Enquanto a conversa não foi lida,
+    // não dá para saber — e cobrar quem apareceu e comprou é o pior erro possível.
+    filtro: (l, d) => l.agendadoPara && l.agendadoPara < d.hoje && situacaoVisita(l).veio === false,
     texto: l => {
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
@@ -2884,7 +2937,7 @@ function renderAgenda(){
   const daquiUmaSemana = new Date(Date.now() + 7*86400000).toISOString().slice(0,10);
 
   const marcados = todosLeads()
-    .filter(l => l.agendadoPara && l.compareceu !== true && l.etapa !== 'vendido' && l.etapa !== 'perdido')
+    .filter(l => l.agendadoPara && situacaoVisita(l).veio !== true && l.etapa !== 'vendido' && l.etapa !== 'perdido')
     .filter(l => !vf || l.vendedora === vf)
     .sort((a,b) => String(a.agendadoPara).localeCompare(String(b.agendadoPara)));
 
@@ -2921,10 +2974,18 @@ function renderAgenda(){
             ${dataBonita(l.agendadoPara)}${l.agendadoHora ? ' às ' + esc(l.agendadoHora) : ''}
             <div class="t-fone">${DIAS_SEM[new Date(l.agendadoPara+'T12:00:00').getDay()] || ''}</div></td>
           <td onclick="abrirLead('${esc(l.telefone)}')">${esc([l.modelo, l.cor, l.numeracao].filter(Boolean).join(' · ') || '—')}</td>
-          <td><div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-sm btn-ok" onclick="marcarVisita('${esc(l.telefone)}',true)">Veio</button>
-            <button class="btn btn-sm btn-er" onclick="marcarVisita('${esc(l.telefone)}',false)">Não veio</button>
-          </div></td>
+          <td>${(() => {
+            const sv = situacaoVisita(l);
+            if(sv.veio === false) return `<span class="pill pill-er">Não veio</span>
+              <div class="t-fone">${esc(FONTE_VISITA[sv.fonte])}</div>
+              <button class="btn btn-sm btn-ok" style="margin-top:6px;" onclick="marcarVisita('${esc(l.telefone)}',true)">Corrigir: veio</button>`;
+            if(sv.fonte === 'sem_varredura') return `<span class="pill">Ainda não dá para saber</span>
+              <div class="t-fone">a conversa dela não foi varrida depois da data</div>`;
+            return `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-sm btn-ok" onclick="marcarVisita('${esc(l.telefone)}',true)">Veio</button>
+              <button class="btn btn-sm btn-er" onclick="marcarVisita('${esc(l.telefone)}',false)">Não veio</button>
+            </div>`;
+          })()}</td>
         </tr>`).join('')}
       </tbody></table></div>
     </div>`).join('');
@@ -2933,7 +2994,7 @@ function renderAgenda(){
 async function marcarVisita(fone, veio){
   const l = LEADS[fone];
   if(!l) return;
-  const novo = {...l, compareceu: veio};
+  const novo = {...l, compareceu: veio, compareceuFonte: 'confirmado'};
   if(veio && (ETAPA_RANK[l.etapa] ?? 0) < ETAPA_RANK.compareceu) novo.etapa = 'compareceu';
   novo.etapaMaxRank = Math.max(l.etapaMaxRank ?? -1, ETAPA_RANK[novo.etapa] ?? -1);
   try{
@@ -2984,7 +3045,7 @@ const CAMPOS_ACEITOS = new Set([
   'agendadoHora','compareceu','valorVenda','dataVenda','repescagens','bloquearRepescagem',
   'motivoBloqueio','obs','primeiraMensagem','origemManual','lembretes',
   'posVendaEnviado','canalVenda','motivoPerda','primeiroContatoEm','primeiraRespostaEm','reserva',
-  'numeracoesPedidas'
+  'numeracoesPedidas','compareceuFonte'
 ]);
 
 async function importarPayload(payload){
@@ -3187,6 +3248,7 @@ window.CRM = {
   classificar: (texto) => classificarOrigem(texto),
   regras:   () => REGRAS_ORIGEM.map(r => ({id:r.id, origem:r.origem, confianca:r.confianca, reconhece:r.desc})),
   marcadoresPosVenda: () => MARCADORES_POSVENDA,
+  visita:   (fone) => { const l = LEADS[normFone(fone)]; return l ? situacaoVisita(l) : null; },
   lembretes: (vend) => montarAutomacoes(vend || '').map(a => ({fila: a.nome, quando: a.quando,
               clientes: a.itens.map(l => ({telefone:l.telefone, nome:l.nome, vendedora:l.vendedora,
                                            visita:l.agendadoPara, texto:a.texto(l)}))})).filter(a => a.clientes.length),
@@ -3291,9 +3353,13 @@ CLASSIFICAÇÃO AUTOMÁTICA DE ORIGEM
 COMO MARCAR VENDA
 
   A mensagem automática de pós-venda é marcador EXATO de compra fechada. Procure
-  por estes textos na conversa e mande posVendaEnviado: true —
-  ${MARCADORES_POSVENDA.map(t=>'"'+t+'"').join(' ou ')}
+  por qualquer um destes trechos na conversa e mande posVendaEnviado: true —
+  ${MARCADORES_POSVENDA.map(t=>'"'+t+'"').join(', ')}
   O CRM move o lead para 'vendido' sozinho.
+
+  IMPORTANTE: mande posVendaEnviado: false quando você LEU a conversa e o
+  pós-venda NÃO estava lá. É desse "false" que sai a conclusão de quem não
+  apareceu — sem ele, o CRM não consegue distinguir "não veio" de "ainda não li".
 
   E marque a ROTA: "loja" quando o cliente veio e fechou, "entrega" quando fechou
   sem vir. Venda de entrega NÃO é comparecimento — se você marcar compareceu:true
@@ -3305,7 +3371,8 @@ O QUE A IA (CLAUDE) PRECISA DECIDIR, PORQUE REGRA NÃO RESOLVE
   · tags           preço só em áudio, sem resposta, pediu desconto, já comprou...
   · modelo/cor/numeracao   o que o cliente escolheu, escrito de mil formas
   · agendadoPara   quando ele disse que vem ("sábado", "depois do dia 20")
-  · compareceu     se apareceu na loja
+  · compareceu     só quando a conversa disser explicitamente. Não deduza da compra:
+                   o CRM já conclui sozinho pelo pós-venda
   · canalVenda     loja ou entrega
   · motivoPerda    por que não fechou, quando a conversa morreu
 
@@ -3372,9 +3439,9 @@ const ACOES = [
   {
     id:'nao_apareceu', prio:5, rotulo:'Remarcar', tom:'am',
     titulo:'Marcou e não apareceu',
-    quando: l => l.agendadoPara && l.agendadoPara < hoje() && l.compareceu !== true
+    quando: l => l.agendadoPara && l.agendadoPara < hoje() && situacaoVisita(l).veio === false
                  && !['vendido','perdido'].includes(l.etapa),
-    porque: l => `Tinha combinado para ${dataBonita(l.agendadoPara)} e não veio.`,
+    porque: l => `Tinha combinado para ${dataBonita(l.agendadoPara)} e não recebeu o pós-venda — não veio.`,
     texto: l => (AUTOMACOES.find(a=>a.id==='noshow')||{}).texto(l), consomeTeto:false
   },
   {

@@ -357,7 +357,39 @@ Reclassificar tudo.
 
 ## Como a venda é medida
 
-### O marcador de compra
+### O marcador de compra — e a dedução do comparecimento
+
+A mensagem de pós-venda é **automática**, disparada pelo sistema em toda compra. Isso a
+torna um marcador confiável nos dois sentidos: quem tem, comprou; **quem não tem, não
+comprou**. Por isso ninguém precisa digitar "veio / não veio".
+
+Trechos procurados na conversa (o nome da vendedora e o do cliente variam, estes não):
+`Muito obrigada pela sua compra` · `Comunidade VIP` · `Conte comigo sempre que você
+precisar` · `novidades em primeira mão`.
+
+Duas armadilhas tratadas, porque uma dedução errada aqui inventa no-show que não houve:
+
+**Ausência só vale se alguém leu.** Se a conta daquela vendedora não foi varrida depois
+da visita, o CRM responde *"ainda não dá para saber"* em vez de *"não veio"*. Uma semana
+sem varredura marcaria a loja inteira como falta.
+
+**Pós-venda prova compra, não presença.** Venda por entrega também recebe a mensagem. A
+dedução de "veio" exige que a rota não seja entrega.
+
+Há **um dia de folga** depois da data combinada, porque o pós-venda pode sair só no fim do
+expediente. Varredura no mesmo dia da visita ainda não conclui; no dia seguinte, conclui.
+
+| O que o CRM vê | O que ele conclui |
+|---|---|
+| Pós-venda na conversa, rota não é entrega | **Veio e comprou** |
+| Sem pós-venda, conta varrida depois da data | **Não veio** |
+| Sem pós-venda, conta não varrida | *Ainda não dá para saber* |
+| Alguém marcou na mão | Vale a marcação, sempre |
+
+Os botões na Agenda continuam lá, mas só para **corrigir exceção** — quem veio,
+experimentou e não levou nada, por exemplo.
+
+### Detalhes do marcador
 
 A **mensagem automática de pós-venda** é marcador determinístico de compra fechada — o
 mesmo raciocínio do template de anúncio. Quem tem esse texto na conversa comprou; quem

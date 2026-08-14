@@ -873,6 +873,7 @@ let MSGS_DIA = {};     // 'YYYY-MM-DD' -> { Vendedora: {recebidas, enviadas} }
    escreve nelas. A Central é a fonte de verdade da venda (vem do Kigi); o CRM é
    a fonte da conversa. Cruzar os dois é o que dá o número que nenhum tem sozinho. */
 let VARREDURA = null;   // {ultima, porVendedora:{...}} — quando os dados foram atualizados
+let ROTINAS_LOG = null; // {manha:{ultima, total, por}, ...} — se a rotina rodou mesmo
 const DIAS_DADO_VELHO = 2;
 
 let CENTRAL = { fechamento: null, metas: null, atingimentos: null,
@@ -1400,9 +1401,13 @@ async function carregarDados(){
     CATALOGO = c.exists ? (c.data().itens || null) : null;
   }catch(e){ VARREDURA = null; CATALOGO = null; }
   try{
-    const e = await db.collection('crm_config').doc('estilo').get();
+    const [e, r] = await Promise.all([
+      db.collection('crm_config').doc('estilo').get(),
+      db.collection('crm_config').doc('rotinas').get()
+    ]);
     ESTILOS = e.exists ? e.data() : null;
-  }catch(e){ ESTILOS = null; }
+    ROTINAS_LOG = r.exists ? r.data() : null;
+  }catch(e){ ESTILOS = null; ROTINAS_LOG = null; }
 }
 
 /* Campos cuja mudança entra na trilha. Não registra tudo: contador de mensagem
@@ -3366,6 +3371,10 @@ window.CRM = {
   loteDoDia: () => lotesDeHoje().filter(x => !x.rotina.somenteAvisar)
                .map(x => loteRotina(x.rotina.id)).filter(x => x.total),
   lote:     (id) => loteRotina(id),
+  registrarRotina: (id, total) => registrarRotina(id, total),
+  pendentesDeHoje: () => rotinasDeHoje()
+    .filter(r => !r.somenteAvisar && r.total > 0 && !rodouHoje(r.id))
+    .map(r => ({id:r.id, nome:r.nome, quando:r.quando, total:r.total})),
   definirEstilo: async (vendedora, perfil) => {
     if(!VENDEDORAS.includes(vendedora)) return `Vendedora inválida. Use: ${VENDEDORAS.join(', ')}`;
     await db.collection('crm_config').doc('estilo').set({[vendedora]: perfil}, {merge:true});
@@ -3939,6 +3948,28 @@ function rotinasDeHoje(){
     ({...rotina, total: itens.length}));
 }
 
+/* Registro de execução. Sem isto, "rotina automática" é promessa: ninguém sabe se
+   a máquina da loja acordou, se o Chrome estava aberto, se a conta caiu. O painel
+   passa a dizer se rodou, quando, e quantos foram — e reclama quando o dia pediu
+   a rotina e ela não veio. */
+async function registrarRotina(id, total){
+  const r = ROTINAS.find(x => x.id === id);
+  if(!r) return `Rotina desconhecida. Use: ${ROTINAS.map(x=>x.id).join(', ')}`;
+  const reg = {ultima: new Date().toISOString(), total: Number(total||0), por: USUARIO || 'loretto'};
+  await db.collection('crm_config').doc('rotinas').set({[id]: reg}, {merge:true});
+  ROTINAS_LOG = {...(ROTINAS_LOG||{}), [id]: reg};
+  render();
+  return `${r.nome}: ${reg.total} registrada(s)`;
+}
+
+/* Rodou hoje? Devolve o registro do dia, ou null. */
+function rodouHoje(id){
+  const r = (ROTINAS_LOG||{})[id];
+  if(!r || !r.ultima) return null;
+  return String(r.ultima).slice(0,10) === hoje() ? r : null;
+}
+const horaDe = iso => new Date(iso).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+
 function renderRotinas(){
   const alvo = $('rotinas');
   if(!alvo) return;
@@ -3959,8 +3990,21 @@ function renderRotinas(){
         <div class="rep-meta">${n
           ? `${n} cliente(s) no lote${cabeHoje ? ' · <b style="color:var(--ou2)">é hoje</b>' : ''}`
           : 'Nada no lote agora.'}</div>
+        ${(() => {
+          const feito = rodouHoje(r.id);
+          if(feito) return `<div class="rep-meta" style="color:#a8d8a8;">
+            Rodou hoje às ${horaDe(feito.ultima)} · ${feito.total} cliente(s) · ${esc(String(feito.por).split('@')[0])}</div>`;
+          if(cabeHoje && n) return `<div class="rep-meta" style="color:#e0a09c;">
+            Ainda não rodou hoje. Enquanto não rodar, estes ${n} continuam esperando.</div>`;
+          const ult = (ROTINAS_LOG||{})[r.id];
+          return ult && ult.ultima
+            ? `<div class="rep-meta">Última vez ${haQuantoTempo(String(ult.ultima).slice(0,10))}, com ${ult.total}.</div>`
+            : '<div class="rep-meta">Nunca rodou.</div>';
+        })()}
       </div><div class="rep-acoes">
         <button class="btn btn-sm" onclick="copiarLote('${esc(r.id)}')">Copiar lote</button>
+        ${cabeHoje && !rodouHoje(r.id) && n
+          ? `<button class="btn btn-sm btn-ok" onclick="registrarRotina('${esc(r.id)}',${n})">Marcar como rodada</button>` : ''}
       </div></div>
     </div>`;
   }).join('');

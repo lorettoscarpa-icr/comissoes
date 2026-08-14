@@ -284,6 +284,7 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
     <button class="aba" data-pag="repescagem" onclick="irPara('repescagem')">Repescagem<span class="aba-badge" id="bd-rep">0</span></button>
     <button class="aba" data-pag="agenda" onclick="irPara('agenda')">Agenda<span class="aba-badge" id="bd-ag">0</span></button>
     <button class="aba" data-pag="automacoes" onclick="irPara('automacoes')">Automações<span class="aba-badge" id="bd-aut">0</span></button>
+    <button class="aba" data-pag="rotinas" onclick="irPara('rotinas')">Loretto</button>
     <button class="aba" data-pag="cruzamento" onclick="irPara('cruzamento')">Cruzamento</button>
     <button class="aba" data-pag="importar" onclick="irPara('importar')">Importar</button>
   </div>
@@ -522,6 +523,26 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <button class="btn btn-sm" onclick="verRegras()">Ver as regras</button>
       </div>
       <div id="revisao"></div>
+    </div>
+
+    <!-- ───────── ROTINAS DA LORETTO ───────── -->
+    <div class="pag" id="pag-rotinas">
+      <div class="slbl">O que a Loretto faz sozinha</div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        O CRM decide tudo isto sem depender de ninguém: quem entra em cada lote, em que ordem,
+        com que mensagem, respeitando o teto e os bloqueios. A <b>Loretto</b> abre a conversa e
+        escreve <b>na voz da vendedora</b>. Se ela não rodar num dia, nada se perde — o lote do dia
+        seguinte vem maior.
+      </div>
+      <div id="rotinas"></div>
+
+      <div class="slbl">A voz de cada vendedora</div>
+      <div class="doc-nota" style="margin-bottom:18px;">
+        Cada uma escreve de um jeito, e cliente que já falou com ela percebe quando a mensagem não
+        parece dela. O CRM aplica o mecânico — saudação, emoji, se chama pelo nome. O ritmo e as
+        gírias ficam nos exemplos, que a Loretto lê para reescrever o texto.
+      </div>
+      <div id="vozes"></div>
     </div>
 
     <!-- ───────── CRUZAMENTO COM A CENTRAL ───────── -->
@@ -942,6 +963,32 @@ function haQuantoTempo(iso){
 const brl = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
 const pct = (a,b) => b > 0 ? Math.round(a/b*100) : 0;
 
+/* ══════════════════ A VOZ DE CADA VENDEDORA ══════════════════
+   Onze mensagens diferentes eram geradas com a mesma abertura fixa, então as
+   quatro soavam igual — e cliente que já falou com a Michelly percebe quando a
+   mensagem não parece dela. O perfil abaixo guarda o jeito de cada uma, lido
+   das mensagens que ela mesma mandou.
+
+   O que o CRM aplica sozinho é o mecânico: como ela cumprimenta, se usa emoji,
+   se chama pelo nome. O resto — ritmo, gírias, tamanho da frase — fica nos
+   `exemplos`, que a Loretto lê para reescrever o texto na voz dela. */
+let ESTILOS = null;   // { Jhennifer: {saudacao, usaNome, emoji, fechamento, exemplos:[]} }
+
+const ESTILO_PADRAO = {saudacao:'', usaNome:true, emoji:'', fechamento:'', exemplos:[]};
+const estiloDe = v => ({...ESTILO_PADRAO, ...((ESTILOS||{})[v] || {})});
+
+/* Abertura da mensagem no jeito da vendedora dona do lead.
+   Sem perfil cadastrado, cai na saudação por horário — que é o que existia antes. */
+function abertura(l){
+  const e = estiloDe(l.vendedora);
+  const primeiro = (l.nome||'').trim().split(/\s+/)[0];
+  const ola = e.saudacao || saudacao();
+  const nome = (e.usaNome !== false && primeiro) ? `, ${primeiro}` : '';
+  return `${ola}${nome}!${e.emoji ? ' ' + e.emoji : ''}`;
+}
+/* Fecho opcional — algumas assinam, outras não. */
+const fechamento = l => { const f = estiloDe(l.vendedora).fechamento; return f ? [f] : []; };
+
 /* Saudação por horário de Brasília — igual à do agente de atendimento */
 function saudacao(){
   const h = Number(new Date().toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo', hour:'2-digit', hour12:false}));
@@ -1352,6 +1399,10 @@ async function carregarDados(){
     VARREDURA = v.exists ? v.data() : null;
     CATALOGO = c.exists ? (c.data().itens || null) : null;
   }catch(e){ VARREDURA = null; CATALOGO = null; }
+  try{
+    const e = await db.collection('crm_config').doc('estilo').get();
+    ESTILOS = e.exists ? e.data() : null;
+  }catch(e){ ESTILOS = null; }
 }
 
 /* Campos cuja mudança entra na trilha. Não registra tudo: contador de mensagem
@@ -2697,7 +2748,7 @@ const contarRepescagem = () => montarFilas('').reduce((s,f) => s + f.itens.lengt
    horário da loja. E sempre cita o que o cliente já escolheu. */
 function sugestaoTexto(l, fila){
   const primeiro = (l.nome||'').trim().split(/\s+/)[0] || '';
-  const ola   = `${saudacao()}${primeiro ? ', ' + primeiro : ''}!`;
+  const ola   = abertura(l);
   const preco = precoDe(l.modelo);
   const escolha = [l.modelo, l.cor && l.cor.toLowerCase()].filter(Boolean).join(' ');
   const temEntrega = ENTREGA_GRATIS_DDD.includes(dddDe(l.telefone));
@@ -2744,13 +2795,13 @@ const AUTOMACOES = [
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
       if(!ehVisita(l)) return [
-        `${saudacao()}${p ? ', ' + p : ''}!`,
+        abertura(l),
         `A gente combinou de fechar seu pedido amanhã.`,
         item ? `O ${item} está reservado em seu nome.` : 'Está tudo reservado em seu nome.',
         'Posso deixar tudo pronto?'
       ].join('\n\n');
       return [
-        `${saudacao()}${p ? ', ' + p : ''}!`,
+        abertura(l),
         `Passando para confirmar: a gente combinou sua visita para amanhã${l.agendadoHora ? ', às ' + l.agendadoHora : ''}.`,
         item ? `Vou deixar o ${item} separado aqui em seu nome.` : 'Vou deixar tudo separado para você experimentar.',
         'Está de pé?'
@@ -2767,13 +2818,13 @@ const AUTOMACOES = [
       // Endereço só para quem vem à loja. Mandar endereço para quem vai receber
       // em casa confunde o cliente e faz a loja parecer desorganizada.
       if(!ehVisita(l)) return [
-        `${saudacao()}${p ? ', ' + p : ''}!`,
+        abertura(l),
         `Hoje é o dia que a gente combinou de fechar seu pedido.`,
         item ? `O ${item} está reservado em seu nome.` : 'Está tudo reservado em seu nome.',
         'Quer que eu já finalize para você?'
       ].join('\n\n');
       return [
-        `${saudacao()}${p ? ', ' + p : ''}!`,
+        abertura(l),
         `Hoje é o dia que a gente combinou${l.agendadoHora ? ', às ' + l.agendadoHora : ''}.`,
         item ? `Estou com o ${item} separado aqui esperando você.` : 'Está tudo separado aqui esperando você.',
         `Estamos em ${ENDERECO_LOJA}, ${HORARIO_LOJA}. Me chama quando estiver saindo?`
@@ -2790,7 +2841,7 @@ const AUTOMACOES = [
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
       return [
-        `${saudacao()}${p ? ', ' + p : ''}!`,
+        abertura(l),
         `A gente tinha combinado para ${dataBonita(l.agendadoPara)} e acabou não dando certo — sem problema nenhum.`,
         item ? `Quer que eu deixe o ${item} separado para outro dia?` : 'Quer marcar outro dia?',
         'Qual dia fica melhor para você?'
@@ -3310,6 +3361,18 @@ window.CRM = {
               texto: x.acao.texto ? x.acao.texto(x.lead) : null})),
   acoes:    () => ACOES.map(a => ({id:a.id, prio:a.prio, titulo:a.titulo, consomeTeto:a.consomeTeto})),
   frescor:  () => frescor(),
+  estilo:   (v) => v ? estiloDe(v) : (ESTILOS || {}),
+  rotinas:  () => rotinasDeHoje().map(r => ({id:r.id, nome:r.nome, quando:r.quando, total:r.total})),
+  loteDoDia: () => lotesDeHoje().filter(x => !x.rotina.somenteAvisar)
+               .map(x => loteRotina(x.rotina.id)).filter(x => x.total),
+  lote:     (id) => loteRotina(id),
+  definirEstilo: async (vendedora, perfil) => {
+    if(!VENDEDORAS.includes(vendedora)) return `Vendedora inválida. Use: ${VENDEDORAS.join(', ')}`;
+    await db.collection('crm_config').doc('estilo').set({[vendedora]: perfil}, {merge:true});
+    ESTILOS = {...(ESTILOS||{}), [vendedora]: perfil};
+    render();
+    return `Voz da ${vendedora} atualizada`;
+  },
   esperando: () => todosLeads().filter(esperandoResposta).map(l => ({telefone:l.telefone,
               nome:l.nome, vendedora:l.vendedora, desde:l.ultimaCliente})),
   hoje:     () => numerosDoDia(),
@@ -3550,7 +3613,7 @@ const ACOES = [
     texto: l => {
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
-      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+      return [abertura(l),
         `A gente tinha combinado ${dataBonita(l.agendadoPara)} para fechar seu pedido e acabou não dando certo — sem problema.`,
         item ? `O ${item} ainda está reservado em seu nome.` : 'Ainda está tudo reservado em seu nome.',
         'Quer que eu finalize agora?'].join('\n\n');
@@ -3565,7 +3628,7 @@ const ACOES = [
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.reserva.modelo, l.reserva.cor && l.reserva.cor.toLowerCase(),
                     l.reserva.numeracao && ('no ' + l.reserva.numeracao)].filter(Boolean).join(' ');
-      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+      return [abertura(l),
         `Ainda estou com o ${item} separado aqui em seu nome.`,
         `Consigo segurar até ${dataBonita(l.reserva.validade)} — dá para você passar até lá?`].join('\n\n');
     }, consomeTeto:false
@@ -3587,7 +3650,7 @@ const ACOES = [
     texto: l => {
       const p = (l.nome||'').trim().split(/\s+/)[0];
       const item = [l.modelo, l.cor && l.cor.toLowerCase(), l.numeracao && ('no ' + l.numeracao)].filter(Boolean).join(' ');
-      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+      return [abertura(l),
         `Separei o ${item} aqui em seu nome.`,
         `Qual dia fica melhor para você passar e experimentar?`].join('\n\n');
     }, consomeTeto:true
@@ -3615,7 +3678,7 @@ const ACOES = [
     porque: l => `Levou ${l.modelo || 'um par'} há ${diasDesde(l.dataVenda)} dias. Cliente que já comprou é o lead mais barato que existe.`,
     texto: l => {
       const p = (l.nome||'').trim().split(/\s+/)[0];
-      return [`${saudacao()}${p ? ', ' + p : ''}!`,
+      return [abertura(l),
         `Faz um tempinho que você levou ${l.modelo ? 'o ' + l.modelo : 'seu par'} com a gente.`,
         'Chegou coleção nova — quer que eu te mande as fotos?'].join('\n\n');
     }, consomeTeto:false
@@ -3774,6 +3837,168 @@ async function marcarVisitaRapido(){
   }catch(e){ res.innerHTML = `<span style="color:#e0a09c;">Erro: ${esc(e.message)}</span>`; }
 }
 
+/* ══════════════════ AS ROTINAS DA LORETTO ══════════════════
+   O que ela faz sozinha, e quando. Cada rotina devolve um lote pronto — quem
+   chamar, com que texto — para a Loretto executar no WhatsApp Web.
+
+   O CRM decide TUDO isto sem depender de ninguém: quem entra, em que ordem, com
+   que mensagem, respeitando teto e bloqueios. O que a Loretto faz é abrir a
+   conversa e escrever na voz da vendedora. Se ela não rodar num dia, nada se
+   perde — o lote do dia seguinte já vem maior. */
+
+const ROTINAS = [
+  {
+    id:'manha', nome:'Repescagem da manhã', quando:'Todo dia, 10h',
+    desc:'Tudo que esfriou desde a última varredura, na ordem em que vale atacar.',
+    dias:[1,2,3,4,5,6],
+    lote: () => meuDia().filter(x => !x.feita &&
+            ['preco_audio','localizacao','numeracao','fotos','marcar_visita'].includes(x.acao.id))
+  },
+  {
+    id:'datas_hoje', nome:'Quem marcou para hoje', quando:'Todo dia, 9h',
+    desc:'Combinou de vir à loja ou de fechar o pedido hoje. Sai antes da repescagem, porque é compromisso, não abordagem.',
+    dias:[1,2,3,4,5,6],
+    lote: () => meuDia().filter(x => !x.feita &&
+            ['visita_hoje','compra_marcada','visita_amanha','reserva_vencendo'].includes(x.acao.id))
+  },
+  {
+    id:'sexta_localizacao', nome:'Sexta: recebeu localização e não veio', quando:'Sexta, 10h',
+    desc:'Quem levou o endereço durante a semana e não apareceu. Fecha a semana chamando quem já sabia onde é a loja.',
+    dias:[5],
+    lote: () => meuDia().filter(x => !x.feita && x.acao.id === 'localizacao' &&
+            diasDesde(x.lead.ultimaLoja || x.lead.ultimaCliente) <= 7)
+  },
+  {
+    id:'semana_passada', nome:'Chamados na semana passada que não vieram', quando:'Segunda, 10h',
+    desc:'Quem foi chamado entre 8 e 21 dias atrás e continua sem aparecer. Segunda pega quem passou o fim de semana pensando.',
+    dias:[1],
+    lote: () => meuDia().filter(x => !x.feita &&
+            ['localizacao','nao_apareceu','compra_atrasada'].includes(x.acao.id) &&
+            (() => { const d = diasDesde(x.lead.ultimaLoja || x.lead.ultimaCliente); return d >= 8 && d <= 21; })())
+  },
+  {
+    id:'esperando', nome:'Quem está esperando resposta', quando:'Toda varredura',
+    desc:'Cliente escreveu e a loja não respondeu. É fila humana: a Loretto sinaliza, quem responde é a vendedora.',
+    dias:[0,1,2,3,4,5,6], somenteAvisar:true,
+    lote: () => meuDia().filter(x => x.acao.id === 'responder')
+  }
+];
+
+/* O lote de uma rotina, no formato que a Loretto consome. */
+function loteRotina(id){
+  const r = ROTINAS.find(x => x.id === id);
+  if(!r) return null;
+  // Se a rotina cabe hoje, usa o lote JÁ sem sobreposição com as outras do dia.
+  const doDia = lotesDeHoje().find(x => x.rotina.id === id);
+  const itens = doDia ? doDia.itens : r.lote();
+  return {
+    rotina: r.nome, quando: r.quando, somenteAvisar: !!r.somenteAvisar,
+    total: itens.length,
+    clientes: itens.map(x => ({
+      telefone: x.lead.telefone, nome: x.lead.nome, vendedora: x.lead.vendedora,
+      acao: x.acao.id, porque: x.acao.porque(x.lead),
+      modelo: x.lead.modelo, cor: x.lead.cor, numeracao: x.lead.numeracao,
+      tentativas: tentativas(x.lead),
+      // O texto abaixo é o ESQUELETO: traz a informação certa e respeita as
+      // regras. A Loretto reescreve na voz da vendedora usando `estilo`.
+      texto: x.acao.texto ? x.acao.texto(x.lead) : null,
+      estilo: estiloDe(x.lead.vendedora)
+    }))
+  };
+}
+
+/* Quais rotinas cabem hoje, pelo dia da semana — já SEM sobreposição.
+   Duas rotinas do mesmo dia podiam pegar o mesmo cliente: na segunda, um lead de
+   localização parado há 10 dias entrava no lote da manhã E no de "semana
+   passada", e a pessoa receberia duas mensagens no mesmo dia. Cada cliente é
+   reivindicado pela rotina MAIS ESPECÍFICA primeiro; a repescagem da manhã fica
+   com o que sobrar, que é o papel dela. */
+const ORDEM_ROTINAS = ['datas_hoje','sexta_localizacao','semana_passada','manha','esperando'];
+
+function lotesDeHoje(){
+  const d = new Date().getDay();
+  const usados = new Set();
+  const out = [];
+  for(const id of ORDEM_ROTINAS){
+    const r = ROTINAS.find(x => x.id === id);
+    if(!r || !r.dias.includes(d)) continue;
+    const itens = r.lote().filter(x => {
+      // 'esperando' só avisa, não manda mensagem: não disputa cliente com ninguém
+      if(r.somenteAvisar) return true;
+      if(usados.has(x.lead.telefone)) return false;
+      usados.add(x.lead.telefone);
+      return true;
+    });
+    out.push({rotina: r, itens});
+  }
+  return out;
+}
+
+function rotinasDeHoje(){
+  return lotesDeHoje().map(({rotina, itens}) =>
+    ({...rotina, total: itens.length}));
+}
+
+function renderRotinas(){
+  const alvo = $('rotinas');
+  if(!alvo) return;
+  const hoje = rotinasDeHoje();
+  alvo.innerHTML = ROTINAS.map(r => {
+    const doDia = hoje.find(h => h.id === r.id);
+    const cabeHoje = !!doDia;
+    const n = cabeHoje ? doDia.total : r.lote().length;
+    return `<div class="fila">
+      <div class="fila-head">
+        <div><div class="fila-tit">${esc(r.nome)}
+          <span class="pill ${cabeHoje?'pill-am':''}">${esc(r.quando)}</span>
+          ${r.somenteAvisar ? '<span class="pill">só avisa</span>' : ''}</div>
+          <div class="fila-desc">${esc(r.desc)}</div></div>
+        <div class="fila-cont">${n}</div>
+      </div>
+      <div class="rep-item"><div>
+        <div class="rep-meta">${n
+          ? `${n} cliente(s) no lote${cabeHoje ? ' · <b style="color:var(--ou2)">é hoje</b>' : ''}`
+          : 'Nada no lote agora.'}</div>
+      </div><div class="rep-acoes">
+        <button class="btn btn-sm" onclick="copiarLote('${esc(r.id)}')">Copiar lote</button>
+      </div></div>
+    </div>`;
+  }).join('');
+}
+
+function renderVozes(){
+  const alvo = $('vozes');
+  if(!alvo) return;
+  alvo.innerHTML = `<div class="tab-wrap"><table class="tab"><thead><tr>
+      <th>Vendedora</th><th>Como ela abre</th><th>Exemplo do texto gerado</th><th class="tnum">Exemplos</th>
+    </tr></thead><tbody>
+    ${VENDEDORAS.map(v => {
+      const e = estiloDe(v);
+      const fake = {nome:'Danilo Souza', vendedora:v, modelo:'Loafer Dubai', cor:'Preto', numeracao:'41', telefone:'5562900000000'};
+      return `<tr>
+        <td class="t-nome">${esc(v)}</td>
+        <td>${e.saudacao ? `<span class="pill pill-ok">${esc(e.saudacao)}${e.emoji?' '+esc(e.emoji):''}</span>`
+                         : '<span class="pill">por horário</span>'}
+            ${e.usaNome === false ? '<div class="t-fone">não usa o nome</div>' : ''}</td>
+        <td style="color:var(--cr2);">${esc(abertura(fake))}</td>
+        <td class="tnum">${(e.exemplos||[]).length}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>
+    <div class="card-sub" style="margin-top:14px;">
+      A Loretto preenche isto sozinha na varredura, lendo as mensagens que cada uma mandou.
+      Para ajustar na mão: <span class="mono">CRM.definirEstilo('Michelly', {saudacao:'Oii', emoji:'😊'})</span>
+    </div>`;
+}
+
+function copiarLote(id){
+  const l = loteRotina(id);
+  if(!l || !l.total){ toast('Nada no lote agora', true); return; }
+  navigator.clipboard.writeText(JSON.stringify(l, null, 1))
+    .then(()=>toast(`Lote copiado — ${l.total} cliente(s)`))
+    .catch(()=>toast('Não consegui copiar', true));
+}
+
 /* ══════════════════ NAVEGAÇÃO ══════════════════ */
 
 function irPara(pag){
@@ -3795,6 +4020,7 @@ function render(){
     if(PAG_ATUAL === 'agenda')     renderAgenda();
     if(PAG_ATUAL === 'automacoes'){ renderAutomacoes(); renderRevisao(); }
     if(PAG_ATUAL === 'cruzamento') renderCruzamento();
+    if(PAG_ATUAL === 'rotinas'){ renderRotinas(); renderVozes(); }
     // badges continuam certos mesmo fora da aba
     $('bd-leads').textContent = leadsDoMes().length;
     $('bd-rep').textContent   = contarRepescagem();

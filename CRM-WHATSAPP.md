@@ -277,6 +277,41 @@ carência: aparece na hora.
 
 ---
 
+## O calendário do mês
+
+Aba **Agenda**. A grade do mês inteiro, dia a dia, com quem combinou o quê — porque é assim
+que se enxerga "quinta está cheia" ou "sexta não tem ninguém marcado", coisa que a lista não
+mostra.
+
+Cada marca traz hora e nome, e a cor diz o que é:
+
+| Cor | O que é |
+|---|---|
+| Dourado | Vir à loja |
+| Azul | Fechar pedido (pode ser entrega) |
+| Verde, apagado | Já veio ou já comprou |
+| Vermelho | Passou a data e não apareceu |
+
+Clicar abre a ficha. Hoje vem destacado.
+
+**Ninguém digita isso.** A data entra na varredura: quando o cliente diz "passo aí sábado"
+ou "dia 15 eu compro", a Loretto grava `agendadoPara` e `tipoAgendamento`, e o compromisso
+aparece no calendário. A vendedora só usa a caixa de *marcar visita* quando quiser
+adiantar sem esperar a próxima varredura.
+
+**A Loretto consulta o calendário antes de tudo.** A rotina `datas_hoje` é a primeira da
+ordem — compromisso marcado vem antes de correr atrás de quem sumiu, e quem está no
+calendário do dia é reivindicado por ela, então não entra na repescagem geral e não recebe
+duas mensagens.
+
+```js
+CRM.calendario()        // o mês inteiro, dia a dia
+CRM.agendaDoDia()       // só hoje
+CRM.agendaDoDia('2026-08-15')
+```
+
+---
+
 ## Meu dia — o CRM diz o que fazer
 
 A vendedora não escolhe fila nem aba. Abre em **Meu dia**, vê uma linha por cliente na

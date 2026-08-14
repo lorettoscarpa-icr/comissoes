@@ -188,6 +188,34 @@ main{max-width:1280px;margin:0 auto;padding:32px 24px 90px;}
 .rep-acoes{display:flex;flex-direction:column;gap:7px;align-items:stretch;min-width:150px;}
 @media(max-width:760px){.rep-item{grid-template-columns:1fr;}.rep-acoes{flex-direction:row;flex-wrap:wrap;}}
 
+/* ═════ CALENDÁRIO ═════ */
+.cal-wrap{overflow-x:auto;border:1px solid var(--oud2);background:var(--surf);}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(104px,1fr));gap:1px;background:var(--oud2);min-width:740px;}
+.cal-cab{background:rgba(0,0,0,.16);padding:9px 8px;text-align:center;
+  font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--cr3);font-weight:600;}
+.cal-dia{background:var(--surf);min-height:92px;padding:7px 8px 9px;display:flex;flex-direction:column;gap:5px;}
+.cal-dia.fora{background:rgba(0,0,0,.14);}
+.cal-dia.hoje{background:rgba(212,180,90,.09);box-shadow:inset 0 0 0 1px var(--oud);}
+.cal-n{font-family:'DM Mono',monospace;font-size:12px;color:var(--cr3);line-height:1;}
+.cal-dia.hoje .cal-n{color:var(--ou);font-weight:700;}
+.cal-dia.fora .cal-n{opacity:.35;}
+.cal-marca{
+  display:flex;align-items:center;gap:5px;font-size:10.5px;line-height:1.25;
+  padding:3px 5px;border-left:2px solid var(--ou3);background:rgba(255,255,255,.04);
+  color:var(--cr2);cursor:pointer;transition:background .13s;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.cal-marca:hover{background:rgba(212,180,90,.12);}
+.cal-marca.compra{border-left-color:var(--o3);}
+.cal-marca.veio{border-left-color:#6dbf6d;opacity:.55;}
+.cal-marca.faltou{border-left-color:var(--er);}
+.cal-marca b{color:var(--cr);font-weight:500;}
+.cal-vazio{font-size:10px;color:var(--cr3);opacity:.4;}
+.cal-legenda{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:10px;
+  letter-spacing:1.2px;text-transform:uppercase;color:var(--cr3);}
+.cal-legenda span{display:flex;align-items:center;gap:6px;}
+.cal-legenda i{width:3px;height:12px;display:inline-block;}
+
 /* ═════ AGENDA ═════ */
 .ag-dia{margin-bottom:26px;}
 .ag-dia-tit{font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--ou2);font-style:italic;margin-bottom:3px;}
@@ -487,6 +515,19 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
       <div class="filtros">
         <select class="sel" id="f-ag-vend" onchange="renderAgenda()"></select>
       </div>
+
+      <div class="card">
+        <div class="card-tit">Calendário do mês</div>
+        <div class="card-sub">Tudo que foi combinado nas conversas, dia a dia. A Loretto consulta isto <b>antes</b> de qualquer repescagem — compromisso marcado vem antes de correr atrás de quem sumiu.</div>
+        <div class="cal-wrap"><div class="cal" id="calendario"></div></div>
+        <div class="cal-legenda">
+          <span><i style="background:var(--ou3)"></i> Vir à loja</span>
+          <span><i style="background:var(--o3)"></i> Fechar pedido</span>
+          <span><i style="background:#6dbf6d"></i> Veio / comprou</span>
+          <span><i style="background:var(--er)"></i> Não apareceu</span>
+        </div>
+      </div>
+
       <div id="agenda"></div>
     </div>
 
@@ -3072,6 +3113,63 @@ function copiarFilaClaude(){
 
 /* ══════════════════ AGENDA ══════════════════ */
 
+/* Calendário do mês. Os dados já existiam espalhados em listas; o que faltava era
+   ver o mês inteiro de uma vez — que é como se enxerga "quinta está cheia" ou
+   "sexta não tem ninguém marcado". */
+const DIAS_CURTOS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+function calendarioDoMes(){
+  const pre = mesPrefixo();
+  const vf = $('f-ag-vend') ? $('f-ag-vend').value : '';
+  const porDia = {};
+  for(const l of todosLeads()){
+    if(!l.agendadoPara || !String(l.agendadoPara).startsWith(pre)) continue;
+    if(vf && l.vendedora !== vf) continue;
+    (porDia[l.agendadoPara] = porDia[l.agendadoPara] || []).push(l);
+  }
+  for(const d of Object.keys(porDia))
+    porDia[d].sort((a,b) => String(a.agendadoHora||'').localeCompare(String(b.agendadoHora||'')));
+  return porDia;
+}
+
+function renderCalendario(){
+  const alvo = $('calendario');
+  if(!alvo) return;
+  const porDia = calendarioDoMes();
+  const ano = DATA_ATUAL.getFullYear(), mes = DATA_ATUAL.getMonth();
+  const primeiro = new Date(ano, mes, 1);
+  const ultimoDia = new Date(ano, mes+1, 0).getDate();
+  const inicio = primeiro.getDay();              // em que coluna o dia 1 cai
+  const celulas = Math.ceil((inicio + ultimoDia) / 7) * 7;
+
+  let html = DIAS_CURTOS.map(d => `<div class="cal-cab">${d}</div>`).join('');
+  for(let i = 0; i < celulas; i++){
+    const dia = i - inicio + 1;
+    if(dia < 1 || dia > ultimoDia){ html += '<div class="cal-dia fora"><div class="cal-n"></div></div>'; continue; }
+    const iso = `${ano}-${String(mes+1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+    const gente = porDia[iso] || [];
+    const ehHoje = iso === hoje();
+    html += `<div class="cal-dia ${ehHoje?'hoje':''}">
+      <div class="cal-n">${dia}${ehHoje?' · hoje':''}</div>
+      ${gente.length ? gente.map(l => {
+        const sv = situacaoVisita(l);
+        const cls = l.etapa === 'vendido' || sv.veio === true ? 'veio'
+                  : sv.veio === false ? 'faltou'
+                  : (ehVisita(l) ? '' : 'compra');
+        const tip = `${l.nome || foneBonito(l.telefone)} · ${ehVisita(l)?'vir à loja':'fechar pedido'}`
+                  + `${l.agendadoHora ? ' às ' + l.agendadoHora : ''} · ${l.vendedora}`
+                  + `${[l.modelo, l.numeracao && ('nº '+l.numeracao)].filter(Boolean).length
+                      ? ' · ' + [l.modelo, l.numeracao && ('nº '+l.numeracao)].filter(Boolean).join(' ') : ''}`;
+        return `<div class="cal-marca ${cls}" data-tip="${esc(tip)}" onclick="abrirLead('${esc(l.telefone)}')">
+          ${l.agendadoHora ? `<span style="color:var(--cr3);font-family:'DM Mono',monospace;">${esc(l.agendadoHora)}</span>` : ''}
+          <b>${esc((l.nome||foneBonito(l.telefone)).split(' ')[0])}</b>
+        </div>`;
+      }).join('') : '<div class="cal-vazio">—</div>'}
+    </div>`;
+  }
+  alvo.innerHTML = html;
+}
+
 function renderAgenda(){
   const vf = $('f-ag-vend').value;
   const h = hoje();
@@ -3371,6 +3469,27 @@ window.CRM = {
   loteDoDia: () => lotesDeHoje().filter(x => !x.rotina.somenteAvisar)
                .map(x => loteRotina(x.rotina.id)).filter(x => x.total),
   lote:     (id) => loteRotina(id),
+  /* O calendário do mês, para a Loretto consultar antes de começar o dia. */
+  calendario: () => {
+    const porDia = calendarioDoMes();
+    return Object.keys(porDia).sort().map(dia => ({
+      dia, diaSemana: DIAS_CURTOS[new Date(dia+'T12:00:00').getDay()],
+      compromissos: porDia[dia].map(l => ({
+        telefone: l.telefone, nome: l.nome, vendedora: l.vendedora,
+        tipo: ehVisita(l) ? 'visita' : 'compra', hora: l.agendadoHora || '',
+        modelo: l.modelo, cor: l.cor, numeracao: l.numeracao,
+        situacao: situacaoVisita(l).veio === true ? 'compareceu'
+                : situacaoVisita(l).veio === false ? 'nao_apareceu' : 'aguardando'
+      }))
+    }));
+  },
+  agendaDoDia: (dia) => {
+    const d = dia || hoje();
+    const porDia = calendarioDoMes();
+    return (porDia[d] || []).map(l => ({telefone:l.telefone, nome:l.nome, vendedora:l.vendedora,
+      tipo: ehVisita(l) ? 'visita' : 'compra', hora: l.agendadoHora || '',
+      modelo: l.modelo, numeracao: l.numeracao}));
+  },
   registrarRotina: (id, total) => registrarRotina(id, total),
   pendentesDeHoje: () => rotinasDeHoje()
     .filter(r => !r.somenteAvisar && r.total > 0 && !rodouHoje(r.id))
@@ -4061,7 +4180,7 @@ function render(){
     if(PAG_ATUAL === 'painel')     renderPainel();
     if(PAG_ATUAL === 'leads')      renderLeads();
     if(PAG_ATUAL === 'repescagem') renderRepescagem();
-    if(PAG_ATUAL === 'agenda')     renderAgenda();
+    if(PAG_ATUAL === 'agenda'){    renderAgenda(); renderCalendario(); }
     if(PAG_ATUAL === 'automacoes'){ renderAutomacoes(); renderRevisao(); }
     if(PAG_ATUAL === 'cruzamento') renderCruzamento();
     if(PAG_ATUAL === 'rotinas'){ renderRotinas(); renderVozes(); }

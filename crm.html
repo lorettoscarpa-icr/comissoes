@@ -86,7 +86,7 @@ header{background:var(--v0);border-bottom:1px solid var(--oud);padding:16px 28px
 .aba.ativa{color:var(--ou);border-bottom-color:var(--ou);}
 .aba-badge{display:inline-block;margin-left:7px;background:var(--oud2);border:1px solid var(--oud);color:var(--ou);padding:1px 6px;font-size:9px;letter-spacing:.5px;}
 
-main{max-width:1280px;margin:0 auto;padding:32px 24px 90px;}
+main{max-width:1440px;margin:0 auto;padding:28px 24px 90px;}
 .pag{display:none;}
 .pag.ativa{display:block;}
 
@@ -108,6 +108,14 @@ main{max-width:1280px;margin:0 auto;padding:32px 24px 90px;}
 .card-sub{font-size:10px;letter-spacing:.5px;color:var(--cr3);margin-bottom:20px;}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
 @media(max-width:860px){.g2{grid-template-columns:1fr;}}
+
+/* Dashboard: os cartões se acomodam em grade em vez de empilhar. Onze seções uma
+   embaixo da outra é relatório; grade é painel — dá para varrer sem rolar. */
+.dash{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:18px;align-items:start;}
+.dash > .card{margin-bottom:0;}
+.dash .largo{grid-column:1 / -1;}
+@media(max-width:920px){.dash{grid-template-columns:1fr;}}
+.slbl.compacto{margin-top:26px;margin-bottom:16px;}
 
 /* barras horizontais — marca fina, ponta arredondada 4px, ancorada na base */
 .bars{display:flex;flex-direction:column;gap:14px;}
@@ -187,6 +195,30 @@ main{max-width:1280px;margin:0 auto;padding:32px 24px 90px;}
 .rep-sug{background:rgba(0,0,0,.2);border-left:2px solid var(--oud);padding:11px 14px;font-size:12.5px;line-height:1.6;color:var(--cr2);white-space:pre-wrap;}
 .rep-acoes{display:flex;flex-direction:column;gap:7px;align-items:stretch;min-width:150px;}
 @media(max-width:760px){.rep-item{grid-template-columns:1fr;}.rep-acoes{flex-direction:row;flex-wrap:wrap;}}
+
+/* ═════ TELA DE CRM: lista + ficha lado a lado ═════ */
+.crm-split{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:1px;
+  background:var(--oud2);border:1px solid var(--oud2);min-height:600px;}
+.crm-lista{background:var(--v0);overflow-y:auto;max-height:calc(100vh - 260px);}
+.crm-linha{padding:12px 14px;border-bottom:1px solid var(--oud2);cursor:pointer;transition:background .12s;}
+.crm-linha:hover{background:rgba(212,180,90,.05);}
+.crm-linha.sel{background:rgba(212,180,90,.11);box-shadow:inset 3px 0 0 var(--ou);}
+.crm-l-topo{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:3px;}
+.crm-l-nome{font-size:13.5px;color:var(--cr);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.crm-l-quando{font-size:10px;color:var(--cr3);white-space:nowrap;flex-shrink:0;}
+.crm-l-meta{font-size:11px;color:var(--cr3);display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.crm-l-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.crm-ficha{background:var(--v1);overflow-y:auto;max-height:calc(100vh - 260px);}
+.crm-ficha-topo{padding:20px 24px;border-bottom:1px solid var(--oud2);display:flex;
+  align-items:flex-start;justify-content:space-between;gap:14px;position:sticky;top:0;background:var(--v1);z-index:2;}
+.crm-ficha-corpo{padding:20px 24px 50px;}
+.crm-nada{padding:70px 24px;text-align:center;color:var(--cr3);font-size:12px;letter-spacing:1px;}
+.crm-nada strong{display:block;color:var(--cr2);font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;}
+@media(max-width:979px){
+  .crm-split{grid-template-columns:1fr;}
+  .crm-ficha{display:none;}
+  .crm-lista{max-height:none;}
+}
 
 /* ═════ CALENDÁRIO ═════ */
 .cal-wrap{overflow-x:auto;border:1px solid var(--oud2);background:var(--surf);}
@@ -365,7 +397,7 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
       <div class="slbl">Resumo do mês <span class="slbl-tag" id="tag-periodo">—</span></div>
       <div class="tiles" id="tiles"></div>
 
-      <div class="slbl" id="slbl-vend">Volume e conversão por vendedora</div>
+      <div class="slbl compacto" id="slbl-vend">Volume e conversão por vendedora</div>
       <div class="g2">
         <div class="card">
           <div class="card-tit">Mensagens recebidas</div>
@@ -379,7 +411,8 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         </div>
       </div>
 
-      <div class="slbl">Velocidade de resposta</div>
+      <div class="slbl compacto">Indicadores do mês</div>
+      <div class="dash">
       <div class="card">
         <div class="card-tit">Quanto o cliente espera pela primeira resposta</div>
         <div class="card-sub">Mediana, não média — uma conversa respondida três dias depois puxaria a média e esconderia o comportamento normal. O percentual em 30 minutos é o que dá para virar meta.</div>
@@ -391,17 +424,13 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         </div>
         <div class="bars" id="ch-frt"></div>
       </div>
-
-      <div class="slbl">Por que a loja perde</div>
       <div class="card">
         <div class="card-tit">Motivo das perdas</div>
         <div class="card-sub">Perder por preço e perder por não ter o 43 em estoque são problemas com soluções opostas. Sem o motivo, os dois viram o mesmo número.</div>
         <div class="bars" id="ch-perda"></div>
         <div id="perda-nota"></div>
       </div>
-
-      <div class="slbl">Conversão em três níveis</div>
-      <div class="card">
+      <div class="card largo">
         <div class="card-tit">Lead → visita → venda</div>
         <div class="card-sub">São diagnósticos diferentes: quem tem <b>lead&nbsp;→&nbsp;visita</b> baixa tem problema de convencimento no WhatsApp. Quem tem <b>visita&nbsp;→&nbsp;venda</b> baixa tem problema na loja — estoque, numeração ou atendimento presencial.</div>
         <div class="tab-wrap"><table class="tab"><thead><tr>
@@ -410,17 +439,13 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
           <th class="tnum">Lead → venda</th><th class="tnum">Faturado</th>
         </tr></thead><tbody id="tb-conv3"></tbody></table></div>
       </div>
-
-      <div class="slbl">As duas rotas de venda</div>
       <div class="card">
         <div class="card-tit">Vendeu na loja ou entregou</div>
         <div class="card-sub">Venda de entrega fecha sem o cliente pisar na loja. Contar as duas juntas esconde qual rota cada vendedora domina — e faz a taxa de comparecimento mentir.</div>
         <div class="bars" id="ch-rotas"></div>
         <div id="rotas-nota"></div>
       </div>
-
-      <div class="slbl">De onde vieram os clientes</div>
-      <div class="card">
+      <div class="card largo">
         <div class="card-tit">Os quatro canais</div>
         <div class="card-sub">Quantos leads cada canal trouxe e quanto cada um converteu em venda. É a leitura que diz onde a verba rende e o que a loja ganha de graça.</div>
         <div class="tab-wrap"><table class="tab"><thead><tr>
@@ -440,27 +465,22 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <div id="ch-origem-vend"></div>
         <div class="leg" id="leg-origem2"></div>
       </div>
-
-      <div class="slbl">Demanda não atendida</div>
       <div class="card">
         <div class="card-tit">Numerações pedidas que a loja não tinha</div>
         <div class="card-sub">Depois de um mês, isto é a lista de compras da reposição — feita com dado, não com intuição. Sai da varredura e de quem foi perdido por falta de estoque.</div>
         <div class="bars" id="ch-demanda"></div>
         <div id="demanda-nota"></div>
       </div>
-
-      <div class="slbl">Funil de atendimento</div>
-      <div class="card">
+      <div class="card largo">
         <div class="card-tit">Onde as conversas param</div>
         <div class="card-sub">Cada etapa conta quem chegou até ali, inclusive quem já passou adiante. À direita, quanto se perde na passagem. <b>Compareceu</b> conta só quem foi marcado como tendo vindo — venda por entrega fecha sem passar por essa etapa.</div>
         <div class="funil" id="ch-funil"></div>
       </div>
-
-      <div class="slbl">Conversão por origem</div>
       <div class="card">
         <div class="card-tit">Qual departamento traz cliente que compra</div>
         <div class="card-sub">Percentual de leads de cada departamento que viraram venda. É isto que diz onde a verba rende.</div>
         <div class="bars" id="ch-conv-origem"></div>
+      </div>
       </div>
     </div>
 
@@ -479,14 +499,12 @@ textarea.inp{min-height:230px;resize:vertical;font-family:'DM Mono',monospace;fo
         <button class="btn btn-sm" onclick="novoLead()">+ Novo lead</button>
         <button class="btn btn-sm" onclick="exportarCSV()">Exportar CSV</button>
       </div>
-      <div class="tab-wrap">
-        <table class="tab">
-          <thead><tr>
-            <th>Cliente</th><th>Vendedora</th><th>Origem</th><th>Etapa</th>
-            <th>Interesse</th><th class="tnum">Msgs</th><th>Última</th><th>Situação</th>
-          </tr></thead>
-          <tbody id="tb-leads"></tbody>
-        </table>
+      <div class="crm-split">
+        <div class="crm-lista" id="crm-lista"></div>
+        <div class="crm-ficha" id="crm-ficha">
+          <div class="crm-nada"><strong>Escolha um cliente</strong>
+            A ficha abre aqui do lado, sem sair da lista.</div>
+        </div>
       </div>
       <div id="leads-vazio"></div>
     </div>
@@ -2320,17 +2338,28 @@ function renderLeads(){
   const ls = leadsFiltrados();
   $('tag-leads').textContent = `${ls.length} ${ls.length === 1 ? 'lead' : 'leads'}`;
   $('bd-leads').textContent  = leadsDoMes().length;
-  $('tb-leads').innerHTML = ls.map(l => `
-    <tr onclick="abrirLead('${esc(l.telefone)}')">
-      <td><div class="t-nome">${esc(l.nome || 'Sem nome')}</div><div class="t-fone">${foneBonito(l.telefone)}</div></td>
-      <td>${esc(l.vendedora || '—')}</td>
-      <td><span class="pill"><span class="pill-dot" style="background:${ORIGEM_COR[l.origem]||'var(--o5)'}"></span>${esc(ORIGEM_NOME[l.origem] || 'Não identificada')}</span></td>
-      <td>${pillEtapa(l)}</td>
-      <td>${esc([l.modelo, l.cor, l.numeracao].filter(Boolean).join(' · ') || '—')}</td>
-      <td class="tnum">${Number(l.msgsCliente||0)}</td>
-      <td>${haQuantoTempo(l.ultimaCliente || l.ultimaLoja || l.primeiroContato)}</td>
-      <td><div class="tags-cel">${(l.tags||[]).slice(0,3).map(t=>`<span class="pill">${esc(TAG_NOME[t]||t)}</span>`).join('')}</div></td>
-    </tr>`).join('');
+  // Lista compacta, como CRM de verdade: o essencial na linha, o resto na ficha.
+  $('crm-lista').innerHTML = ls.map(l => `
+    <div class="crm-linha ${l.telefone === LEAD_ABERTO ? 'sel' : ''}" onclick="abrirLead('${esc(l.telefone)}')">
+      <div class="crm-l-topo">
+        <span class="crm-l-nome">${esc(l.nome || foneBonito(l.telefone))}</span>
+        <span class="crm-l-quando">${haQuantoTempo(l.ultimaCliente || l.ultimaLoja || l.primeiroContato)}</span>
+      </div>
+      <div class="crm-l-meta">
+        <span class="crm-l-dot" style="background:${ORIGEM_COR[l.origem]||'var(--o5)'}"></span>
+        ${esc(ETAPA_NOME[l.etapa] || l.etapa)}
+        ${ehGestao() ? ` · ${esc(l.vendedora || '—')}` : ''}
+        ${l.modelo ? ` · ${esc(l.modelo)}` : ''}
+        ${esperandoResposta(l) ? ' · <b style="color:#e0a09c;">esperando resposta</b>' : ''}
+        ${temConflito(l) ? ' · <b style="color:#e0a09c;">conflito</b>' : ''}
+      </div>
+    </div>`).join('');
+  // Mantém a ficha coerente com a lista filtrada
+  if(LEAD_ABERTO && !ls.some(l => l.telefone === LEAD_ABERTO) && $('crm-ficha') && TELA_LARGA()){
+    LEAD_ABERTO = null;
+    $('crm-ficha').innerHTML = `<div class="crm-nada"><strong>Escolha um cliente</strong>
+      A ficha abre aqui do lado, sem sair da lista.</div>`;
+  }
   $('leads-vazio').innerHTML = ls.length ? '' :
     `<div class="vazio" style="margin-top:18px;"><strong>Nenhum lead aqui</strong>
       Ajuste os filtros ou importe uma varredura do WhatsApp na aba <b>Importar</b>.</div>`;
@@ -2338,15 +2367,11 @@ function renderLeads(){
 
 /* ══════════════════ DRAWER — DETALHE DO LEAD ══════════════════ */
 
-function abrirLead(fone){
-  const l = LEADS[fone];
-  if(!l) return;
-  LEAD_ABERTO = fone;
-  $('dr-nome').textContent = l.nome || 'Sem nome';
-  $('dr-fone').textContent = foneBonito(l.telefone);
+/* A ficha vive em dois lugares: no painel lateral da tela de CRM (desktop) e na
+   gaveta (celular). Mesmo HTML nos dois, senão eles desandam com o tempo. */
+function fichaHTML(l){
   const rp = podeRepescar(l);
-
-  $('dr-body').innerHTML = `
+  const html = `
     <div class="campo"><label>Nome</label><input class="inp" id="d-nome" value="${esc(l.nome||'')}"></div>
     <div class="campo-2">
       <div class="campo"><label>Vendedora</label><select class="sel" id="d-vend">
@@ -2459,11 +2484,46 @@ function abrirLead(fone){
       <button class="btn btn-er btn-sm" onclick="apagarLead('${esc(l.telefone)}')">Apagar</button>
     </div>`;
 
+  return html;
+}
+
+/* Liga o comportamento que depende do DOM já montado. */
+function ligarFicha(){
   const selEtapa = $('d-etapa');
   if(selEtapa) selEtapa.onchange = () => {
     const c = $('campo-motivo');
     if(c) c.style.display = selEtapa.value === 'perdido' ? 'block' : 'none';
   };
+}
+
+const TELA_LARGA = () => window.matchMedia('(min-width: 980px)').matches;
+
+function abrirLead(fone){
+  const l = LEADS[fone];
+  if(!l) return;
+  LEAD_ABERTO = fone;
+
+  // Na tela de CRM em tela larga, a ficha abre no painel lateral — não numa
+  // gaveta por cima. É a diferença entre consultar um registro e trabalhar nele.
+  if(PAG_ATUAL === 'leads' && TELA_LARGA()){
+    const pane = $('crm-ficha');
+    if(pane){
+      pane.innerHTML = `<div class="crm-ficha-topo">
+          <div><div class="dr-nome">${esc(l.nome || 'Sem nome')}</div>
+               <div class="dr-fone">${foneBonito(l.telefone)}</div></div>
+          <a class="btn btn-sm" href="https://wa.me/${esc(l.telefone)}" target="_blank" rel="noopener">WhatsApp</a>
+        </div>
+        <div class="crm-ficha-corpo">${fichaHTML(l)}</div>`;
+      ligarFicha();
+      renderLeads();   // realça a linha selecionada
+      return;
+    }
+  }
+
+  $('dr-nome').textContent = l.nome || 'Sem nome';
+  $('dr-fone').textContent = foneBonito(l.telefone);
+  $('dr-body').innerHTML = fichaHTML(l);
+  ligarFicha();
   $('drawer').classList.add('open');
   $('drawer-bg').classList.add('open');
 }
@@ -2474,11 +2534,23 @@ function fecharDrawer(){
   LEAD_ABERTO = null;
 }
 
+/* Onde a ficha está montada agora: painel lateral do CRM ou gaveta.
+   O salvamento lia as situações de '#dr-body .chk', fixo na gaveta — salvando
+   pela ficha lateral o seletor não achava nada e o lead perdia TODAS as tags,
+   inclusive 'pediu desconto' e 'já comprou', que são as que bloqueiam
+   repescagem. O cliente voltaria para a fila calado. */
+function containerFicha(){
+  const lateral = $('crm-ficha');
+  if(lateral && lateral.querySelector('#d-nome')) return lateral;
+  return $('dr-body');
+}
+
 async function salvarDrawer(){
   const l = LEADS[LEAD_ABERTO];
   if(!l) return;
   const compVal = $('d-comp').value;
-  const tags = [...document.querySelectorAll('#dr-body .chk')]
+  const cont = containerFicha();
+  const tags = [...cont.querySelectorAll('.chk')]
     .filter(c => c.classList.contains('on'))
     .map(c => c.querySelector('input').dataset.tag);
 
@@ -2524,10 +2596,19 @@ async function salvarDrawer(){
   if(novo.compareceu === true && (ETAPA_RANK[novo.etapa] ?? 0) < ETAPA_RANK.compareceu) novo.etapa = 'compareceu';
 
   try{
+    const noLateral = containerFicha() === $('crm-ficha');
+    const fone = LEAD_ABERTO;
     await salvarLead(novo);
     toast('Lead salvo');
-    fecharDrawer();
-    render();
+    if(noLateral){
+      // Numa tela de CRM, salvar não tira o registro da frente: recarrega a
+      // ficha e mantém a linha selecionada, para continuar de onde parou.
+      render();
+      abrirLead(fone);
+    }else{
+      fecharDrawer();
+      render();
+    }
   }catch(e){ toast('Erro ao salvar: ' + e.message, true); }
 }
 

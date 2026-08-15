@@ -8,6 +8,24 @@ Abrir: `crm.html` no navegador. Quem já estiver logado na Central entra direto.
 
 ---
 
+## As duas telas
+
+**Painel = dashboard.** Os números do dia e do mês em cima, e os indicadores em grade —
+não em onze seções empilhadas. Dá para varrer sem rolar. É a tela da gestão.
+
+**Leads = tela de CRM.** Lista compacta à esquerda, ficha do cliente à direita, lado a
+lado. Escolher um cliente não abre gaveta por cima da lista: preenche o painel ao lado, a
+linha fica realçada, e **salvar mantém a ficha aberta** — porque numa tela de CRM se
+trabalha o registro, não se consulta e sai. No celular a coluna da ficha some e volta a
+gaveta.
+
+> **Corrigido no caminho:** o salvamento lia as situações de um seletor fixo na gaveta.
+> Salvando pela ficha lateral o seletor não achava nada e o lead **perdia todas as tags** —
+> inclusive `pediu desconto` e `já comprou`, que são as que bloqueiam repescagem. O cliente
+> voltaria calado para a fila.
+
+---
+
 ## O que o painel mostra
 
 | Aba | Para quê |

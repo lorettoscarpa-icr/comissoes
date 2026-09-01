@@ -1207,6 +1207,20 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   text-transform:uppercase;cursor:pointer;
 }
 .cat-rm:hover{border-color:#c98b8b;color:#c98b8b;}
+/* Modal de criar/editar categoria */
+.nc-campo{margin-bottom:18px;}
+.nc-campo label{
+  display:block;font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--cr3);margin-bottom:7px;
+}
+.nc-campo input{
+  width:100%;background:rgba(255,255,255,.04);border:1px solid var(--oud);
+  color:var(--cr);padding:9px 11px;font-family:'Cormorant Garamond',serif;font-size:16px;outline:none;
+}
+.nc-campo input:focus{border-color:var(--ou);}
+.nc-moeda{display:flex;align-items:center;gap:8px;}
+.nc-moeda span{font-family:'Cormorant Garamond',serif;font-size:16px;color:var(--ou2);}
+.nc-dica{font-size:11px;color:var(--cr3);margin-top:7px;line-height:1.5;}
 .hist-vazio{
   text-align:center;padding:60px 20px;color:var(--cr3);
   border:1px dashed var(--oud);background:rgba(0,0,0,.1);
@@ -2017,6 +2031,32 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-nova-cat" onclick="if(event.target===this)fecharModalNovaCat()">
+  <div class="modal" style="max-width:520px;">
+    <h2 id="modal-nova-cat-tit">Nova Categoria</h2>
+    <div class="sub" id="modal-nova-cat-sub">—</div>
+
+    <div class="nc-campo">
+      <label>Nome da categoria</label>
+      <input type="text" id="nova-cat-nome" placeholder="Ex.: Mochilas" maxlength="40" autocomplete="off">
+    </div>
+
+    <div class="nc-campo">
+      <label>Comissão por peça vendida</label>
+      <div class="nc-moeda">
+        <span>R$</span>
+        <input type="text" id="nova-cat-comissao" placeholder="0,00" autocomplete="off">
+      </div>
+      <div class="nc-dica">Quanto a vendedora ganha por unidade vendida desta categoria. Deixe <strong>0</strong> se ela não paga comissão, como Meias e Produtos de Limpeza. As metas e o bônus desta categoria você configura depois em <strong>Metas e Bônus</strong>.</div>
+    </div>
+
+    <div class="modal-acoes">
+      <button class="bup" onclick="fecharModalNovaCat()">Cancelar</button>
+      <button class="bup primario" id="nova-cat-salvar" onclick="salvarNovaCat()">Criar Categoria</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <div id="comp-tooltip"></div>
 
@@ -2133,6 +2173,7 @@ window.inicializarDashboardLogado = async function(){
 
   // Carrega dados da nuvem ANTES de tentar exibir
   await inicializarFirestoreCache();
+  carregarCatsExtras();   // antes do manual: o manual pode apontar pra uma delas
   carregarCatManual();
 
   if(ind){ ind.textContent = ''; ind.className = ''; }
@@ -2197,6 +2238,7 @@ const FS_CACHE = {
   adiantamentos: {}, // 'YYYY-M' -> { Colaborador: valor } (Larissa preenche; desconta do total)
   pagamentos: {},    // 'YYYY-M' -> { Colaborador: { nomeCompleto, funcao, salarioBase, vencimentos, descontos, liquido, itens:[] } }
   catManual: {},     // 'global' -> { 'produto normalizado': {cat, nome} } — classificações feitas na mão
+  catsExtras: {},    // 'global' -> { itens: { id: {nome, comissao, criadaEm} } } — categorias criadas na tela
   carregado: false,
   carregando: false
 };
@@ -2284,8 +2326,59 @@ function catManualNome(txNormalizado){
   return v.nome || txNormalizado;
 }
 
-// Categorias que podem ser escolhidas na mão (as reais + "não é venda")
-const CATS_ESCOLHIVEIS = ORDEM_CAT.concat(['_excluir']);
+// Categorias que podem ser escolhidas na mão (as reais + "não é venda").
+// É função, e não constante, porque a lista cresce quando alguém cria
+// uma categoria nova na tela.
+function catsEscolhiveis(){
+  return ORDEM_CAT.concat(['_excluir']);
+}
+
+// ── CATEGORIAS CRIADAS NA TELA ──
+// Além das categorias de fábrica (sapatos, cintos...), quem faz o fechamento
+// pode criar as suas — "Mochilas", por exemplo — e dizer quanto cada uma paga
+// de comissão por peça. Elas entram em ORDEM_CAT/NOME_CAT/COMISSAO e daí em
+// diante o resto do sistema (comissão, metas, bônus, gráficos, exports) trata
+// elas igual às de fábrica.
+//   { id: { nome, comissao, criadaEm } }
+let CATS_EXTRAS = {};
+
+function carregarCatsExtras(){
+  const d = fsLer('catsExtras', 'global');
+  CATS_EXTRAS = (d && d.itens && typeof d.itens === 'object') ? {...d.itens} : {};
+  // Registra na ordem de criação, pra tabela não dançar entre um mês e outro
+  Object.keys(CATS_EXTRAS)
+    .sort((a,b)=> String(CATS_EXTRAS[a].criadaEm||'').localeCompare(String(CATS_EXTRAS[b].criadaEm||'')))
+    .forEach(id => {
+      const c = CATS_EXTRAS[id];
+      if(!c || !c.nome) return;
+      NOME_CAT[id]  = c.nome;
+      COMISSAO[id]  = Number(c.comissao) || 0;
+      if(!ORDEM_CAT.includes(id)) ORDEM_CAT.push(id);
+    });
+}
+
+function salvarCatsExtras(){
+  fsSalvar('catsExtras', 'global', {itens: CATS_EXTRAS}, {silencioso:true});
+}
+
+// Tira uma categoria criada na tela do registro em memória
+function desregistrarCatExtra(id){
+  const i = ORDEM_CAT.indexOf(id);
+  if(i >= 0) ORDEM_CAT.splice(i, 1);
+  delete NOME_CAT[id];
+  delete COMISSAO[id];
+  delete CATS_EXTRAS[id];
+}
+
+// Monta um id a partir do nome digitado ("Mochilas" -> "mochilas"),
+// sem esbarrar num id que já existe
+function idParaCatNova(nome){
+  const base = normalizar(nome).replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,32);
+  if(!base) return '';
+  let id = base, n = 2;
+  while(NOME_CAT[id] || id === '_excluir' || id.startsWith('_')) id = `${base}_${n++}`;
+  return id;
+}
 
 function carregarCatManual(){
   const d = fsLer('catManual', 'global');
@@ -2301,12 +2394,111 @@ function salvarCatManual(){
 let SEM_CAT_LISTA = [];
 let CAT_MANUAL_LISTA = [];
 
+// ── MODAL DE CRIAR / EDITAR CATEGORIA ──
+// Guarda o produto que disparou a criação, pra já classificar nela depois
+let NOVA_CAT_PRODUTO_IDX = null;
+let NOVA_CAT_EDIT_ID = null;
+
+function abrirModalNovaCat(produtoIdx, editarId){
+  NOVA_CAT_PRODUTO_IDX = (produtoIdx === undefined || produtoIdx === null) ? null : produtoIdx;
+  NOVA_CAT_EDIT_ID = editarId || null;
+
+  const editando = !!NOVA_CAT_EDIT_ID;
+  const c = editando ? CATS_EXTRAS[NOVA_CAT_EDIT_ID] : null;
+
+  document.getElementById('modal-nova-cat-tit').textContent = editando ? 'Editar Categoria' : 'Nova Categoria';
+  document.getElementById('nova-cat-salvar').textContent    = editando ? 'Salvar' : 'Criar Categoria';
+  document.getElementById('nova-cat-nome').value     = c ? c.nome : '';
+  document.getElementById('nova-cat-comissao').value = c ? String(Number(c.comissao)||0).replace('.', ',') : '';
+
+  let sub = 'Ela passa a valer em todos os meses';
+  if(NOVA_CAT_PRODUTO_IDX !== null && SEM_CAT_LISTA[NOVA_CAT_PRODUTO_IDX]){
+    sub = `Para classificar: ${SEM_CAT_LISTA[NOVA_CAT_PRODUTO_IDX]}`;
+  }
+  document.getElementById('modal-nova-cat-sub').textContent = sub;
+
+  document.getElementById('modal-nova-cat').classList.add('open');
+  setTimeout(()=>{ const el = document.getElementById('nova-cat-nome'); if(el) el.focus(); }, 60);
+}
+
+function fecharModalNovaCat(){
+  document.getElementById('modal-nova-cat').classList.remove('open');
+  NOVA_CAT_PRODUTO_IDX = null;
+  NOVA_CAT_EDIT_ID = null;
+  // Redesenha pra o seletor não ficar parado em "Criar categoria nova"
+  if(RESULTADO) renderAuditoria();
+}
+
+function salvarNovaCat(){
+  const nome = String(document.getElementById('nova-cat-nome').value || '').trim();
+  const comissao = parseValor(document.getElementById('nova-cat-comissao').value);
+
+  if(nome.length < 2){ toast('Dê um nome para a categoria', 'er'); return; }
+  if(comissao < 0){ toast('A comissão não pode ser negativa', 'er'); return; }
+
+  // Editando: só troca nome e comissão, mantendo o id (os produtos já apontam pra ele)
+  if(NOVA_CAT_EDIT_ID){
+    const id = NOVA_CAT_EDIT_ID;
+    CATS_EXTRAS[id] = {...CATS_EXTRAS[id], nome, comissao};
+    NOME_CAT[id] = nome;
+    COMISSAO[id] = comissao;
+    salvarCatsExtras();
+    document.getElementById('modal-nova-cat').classList.remove('open');
+    NOVA_CAT_EDIT_ID = null; NOVA_CAT_PRODUTO_IDX = null;
+    aplicarCatManual(`Categoria ${nome} atualizada.`);
+    return;
+  }
+
+  // Criando: nome repetido vira confusão na hora de escolher
+  const jaExiste = Object.keys(NOME_CAT).find(id => normalizar(NOME_CAT[id]) === normalizar(nome));
+  if(jaExiste){ toast(`Já existe a categoria "${NOME_CAT[jaExiste]}"`, 'er'); return; }
+
+  const id = idParaCatNova(nome);
+  if(!id){ toast('Nome inválido — use letras ou números', 'er'); return; }
+
+  CATS_EXTRAS[id] = {nome, comissao, criadaEm: new Date().toISOString()};
+  NOME_CAT[id] = nome;
+  COMISSAO[id] = comissao;
+  ORDEM_CAT.push(id);
+  salvarCatsExtras();
+
+  const idxProduto = NOVA_CAT_PRODUTO_IDX;
+  document.getElementById('modal-nova-cat').classList.remove('open');
+  NOVA_CAT_PRODUTO_IDX = null;
+
+  // Se veio de um produto sem categoria, já classifica ele na categoria nova
+  if(idxProduto !== null && SEM_CAT_LISTA[idxProduto]){
+    definirCatManual(idxProduto, id);
+  } else {
+    aplicarCatManual(`Categoria ${nome} criada (${fmtBRL(comissao)} por peça).`);
+  }
+}
+
+// Apaga uma categoria criada na tela. Os produtos que apontavam pra ela voltam
+// a ficar sem categoria — melhor isso do que deixar venda apontando pro vazio.
+function excluirCatExtra(id){
+  const c = CATS_EXTRAS[id];
+  if(!c) return;
+  const presos = Object.keys(CAT_MANUAL).filter(k => catManualDe(k) === id);
+  const aviso = presos.length
+    ? `\n\n${presos.length} ${presos.length===1?'produto volta':'produtos voltam'} a ficar sem categoria e ${presos.length===1?'deixa':'deixam'} de gerar comissão.`
+    : '';
+  if(!confirm(`Apagar a categoria "${c.nome}"?${aviso}`)) return;
+
+  presos.forEach(k => delete CAT_MANUAL[k]);
+  desregistrarCatExtra(id);
+  salvarCatsExtras();
+  salvarCatManual();
+  aplicarCatManual(`Categoria ${c.nome} apagada.`);
+}
+
 // Chamado pelo seletor de categoria na auditoria
 function definirCatManual(idx, cat){
   if(!cat) return;
+  if(cat === '__nova__'){ abrirModalNovaCat(idx, null); return; }
   const produto = SEM_CAT_LISTA[idx];
   if(!produto){ toast('Produto não encontrado — reprocesse o arquivo', 'er'); return; }
-  if(!CATS_ESCOLHIVEIS.includes(cat)){ toast('Categoria inválida', 'er'); return; }
+  if(!catsEscolhiveis().includes(cat)){ toast('Categoria inválida', 'er'); return; }
 
   const chave = normalizar(produto);
   if(!chave){ toast('Produto sem descrição — não dá pra classificar', 'er'); return; }
@@ -2494,7 +2686,9 @@ function classificar(descr){
   const tx = normalizar(descr);
   if(!tx) return null;
   const manual = catManualDe(tx);
-  if(manual) return manual;
+  // Se a categoria escolhida foi apagada depois, ignora a regra em vez de
+  // devolver uma categoria que o resto do sistema não conhece
+  if(manual && (manual === '_excluir' || ORDEM_CAT.includes(manual))) return manual;
   for(const r of REGRAS_CAT){
     for(const termo of r.termos){
       if(tx.includes(termo)) return r.cat;
@@ -3720,7 +3914,7 @@ async function inicializarFirestoreCache(){
 
   try {
     // Carrega todas as coleções em paralelo
-    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag, snapCatM] = await Promise.all([
+    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag, snapCatM, snapCatX] = await Promise.all([
       getDocs(collection(db, 'fechamentos')),
       getDocs(collection(db, 'metas')),
       getDocs(collection(db, 'atingimentos')),
@@ -3728,7 +3922,8 @@ async function inicializarFirestoreCache(){
       getDocs(collection(db, 'equipeFixa')),
       getDocs(collection(db, 'adiantamentos')),
       getDocs(collection(db, 'pagamentos')),
-      getDocs(collection(db, 'catManual'))
+      getDocs(collection(db, 'catManual')),
+      getDocs(collection(db, 'catsExtras'))
     ]);
 
     snapFech.forEach(d => { FS_CACHE.fechamentos[d.id] = d.data(); });
@@ -3739,6 +3934,7 @@ async function inicializarFirestoreCache(){
     snapAdiant.forEach(d => { FS_CACHE.adiantamentos[d.id] = d.data(); });
     snapPag.forEach(d => { FS_CACHE.pagamentos[d.id] = d.data(); });
     snapCatM.forEach(d => { FS_CACHE.catManual[d.id] = d.data(); });
+    snapCatX.forEach(d => { FS_CACHE.catsExtras[d.id] = d.data(); });
 
     FS_CACHE.carregado = true;
     console.log('Firestore: cache carregado',
@@ -3880,6 +4076,7 @@ function fsSalvar(colecao, id, dados, opcoes){
     else if(colecao === 'adiantamentos') chaveLS = `loretto-adiant-${id}`;
     else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
     else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
+    else if(colecao === 'catsExtras') chaveLS = `loretto-catsextras-${id}`;
     if(chaveLS) localStorage.setItem(chaveLS, JSON.stringify(dados));
   } catch(e){}
 
@@ -3958,6 +4155,7 @@ function fsLer(colecao, id){
     else if(colecao === 'adiantamentos') chaveLS = `loretto-adiant-${id}`;
     else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
     else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
+    else if(colecao === 'catsExtras') chaveLS = `loretto-catsextras-${id}`;
     if(chaveLS){
       const raw = localStorage.getItem(chaveLS);
       if(raw) return JSON.parse(raw);
@@ -4699,7 +4897,8 @@ function renderAuditoria(){
     {tipo:'info', count: (a.parcerias || []).length, render:'parcerias'},
     {tipo:'info', count: (a.ecommerce || []).length, render:'ecommerce'},
     {tipo:'info', count: (a.lancamentosGestao || []).length, render:'gestao'},
-    {tipo:'info', count: manuaisCat.length, render:'catManual'}
+    {tipo:'info', count: manuaisCat.length, render:'catManual'},
+    {tipo:'info', count: Object.keys(CATS_EXTRAS).length, render:'catsExtras'}
   ];
   const totalErros = problemas.filter(p=>p.tipo==='erro').reduce((s,p)=>s+p.count,0);
   const totalWarns = problemas.filter(p=>p.tipo==='warn').reduce((s,p)=>s+p.count,0);
@@ -4769,8 +4968,9 @@ function renderAuditoria(){
     // Guarda a lista pra o seletor referenciar por índice (evita passar o nome
     // do produto dentro do atributo onchange, que quebraria com aspas na descrição)
     SEM_CAT_LISTA = arr.map(p=>p.produto);
-    const opcoes = ORDEM_CAT.map(c=>`<option value="${c}">${NOME_CAT[c]}</option>`).join('')
-      + `<option value="_excluir">Não é venda (frete, taxa...)</option>`;
+    const opcoes = ORDEM_CAT.map(c=>`<option value="${c}">${escHtml(NOME_CAT[c])}</option>`).join('')
+      + `<option value="_excluir">Não é venda (frete, taxa...)</option>`
+      + `<option value="__nova__">+ Criar categoria nova...</option>`;
     const rows = arr.map((p, i)=>`
       <tr>
         <td>${escHtml(p.produto)}</td>
@@ -4787,6 +4987,30 @@ function renderAuditoria(){
     html += secAud('sem-cat', `Produtos sem categoria identificada`, a.produtosSemCategoria.size, 'warn', `
       <p>Estes produtos <strong>não geraram comissão</strong> porque o sistema não reconheceu o que eles são. <strong>Escolha a categoria de cada um na coluna da direita</strong> — o fechamento é recalculado na hora e a escolha fica salva pros próximos meses.</p>
       <table><thead><tr><th>Produto</th><th class="tnum">Linhas</th><th class="tnum">Qtd Total</th><th class="tnum">Valor Total</th><th>Categoria</th></tr></thead><tbody>${rows}</tbody></table>
+    `);
+  }
+
+  // Categorias criadas na tela — conferir comissão, editar ou apagar
+  const extrasIds = Object.keys(CATS_EXTRAS)
+    .filter(id => ORDEM_CAT.includes(id))
+    .sort((x,y)=> String(CATS_EXTRAS[x].criadaEm||'').localeCompare(String(CATS_EXTRAS[y].criadaEm||'')));
+  if(extrasIds.length){
+    const rows = extrasIds.map(id=>{
+      const usos = Object.keys(CAT_MANUAL).filter(k => catManualDe(k) === id).length;
+      return `
+      <tr>
+        <td>${escHtml(CATS_EXTRAS[id].nome)}</td>
+        <td class="tnum">${fmtBRL(COMISSAO[id] || 0)}</td>
+        <td class="tnum">${fmtInt(usos)}</td>
+        <td>
+          <button class="cat-rm" onclick="abrirModalNovaCat(null, '${id}')">Editar</button>
+          <button class="cat-rm" onclick="excluirCatExtra('${id}')">Apagar</button>
+        </td>
+      </tr>`;
+    }).join('');
+    html += secAud('cats-extras', `Categorias criadas por vocês`, extrasIds.length, 'info', `
+      <p>Categorias que não vieram de fábrica. Funcionam igual às outras: entram na comissão, no fechamento, nos gráficos e na tela de <strong>Metas e Bônus</strong>. Para criar uma nova, use o seletor em "Produtos sem categoria identificada".</p>
+      <table><thead><tr><th>Categoria</th><th class="tnum">Comissão/un.</th><th class="tnum">Produtos nela</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     `);
   }
 
@@ -5514,7 +5738,11 @@ function corCategoria(cat){
     sapatos:'#d4b45a', cintos:'#b08840', carteiras:'#ebd48a',
     prendedores:'#a8d4a8', protetores:'#6f9c72', limpeza:'#7a8a5a', meias:'#5a6b3a'
   };
-  return map[cat] || '#888';
+  if(map[cat]) return map[cat];
+  // Categorias criadas na tela: cor fixa por posição, pra não mudar a cada render
+  const extras = ['#c98b6a','#8a9ec9','#c9a8d4','#9cc9b4','#d4c98a','#b48ac9'];
+  const i = ORDEM_CAT.indexOf(cat);
+  return i >= 0 ? extras[i % extras.length] : '#888';
 }
 
 // Formata valores do eixo Y de forma compacta (ex: 1.5k, 12k)

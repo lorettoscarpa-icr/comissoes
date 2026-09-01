@@ -2235,13 +2235,17 @@ const REGRAS_CAT = [
   // Sapatos de Encomenda — produto fictício do Kigi (deve vir ANTES de sapatos)
   {cat:'sapatos_encomenda', termos:['sapato encomenda','sapato de encomenda','encomenda']},
   // Sapatos
-  {cat:'sapatos', termos:['sapato','sneaker','tênis','tenis','loafer','slipper','bota','derby','oxford','mocassim','chuteira','chinelo','sandália','sandalia','sapatênis','sapatenis','sapatilha','dockside','birken','wholecut']},
+  {cat:'sapatos', termos:['sapato','sneaker','tênis','tenis','loafer','slipper','bota','derby','oxford','mocassim','chuteira','chinelo','slide','papete','sandália','sandalia','sapatênis','sapatenis','sapatilha','dockside','birken','wholecut']},
   // Cintos
   {cat:'cintos', termos:['cinto']},
   // Carteiras
   {cat:'carteiras', termos:['carteira','wallet','porta-cartão','porta cartao','porta-cartao']},
   // Prendedor
-  {cat:'prendedores', termos:['prendedor','prendedor de camisa','suspensório','suspensorio']}
+  {cat:'prendedores', termos:['prendedor','prendedor de camisa','suspensório','suspensorio']},
+  // Amostra (peça de mostruário) — vale como sapato vendido. Fica por ÚLTIMO de
+  // propósito: assim "Amostra de Cinto" ainda cai em cintos, e só a amostra sem
+  // outro produto na descrição vira sapato.
+  {cat:'sapatos', termos:['amostra']}
 ];
 
 // Fotos das vendedoras (carregadas dinamicamente do JSON)

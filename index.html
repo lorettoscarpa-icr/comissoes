@@ -997,6 +997,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .toast.show{opacity:1;transform:translateY(0);}
 .toast.er{border-color:rgba(192,80,74,.6);background:rgba(192,80,74,.18);}
 .toast.ok{border-color:rgba(109,191,109,.5);background:rgba(54,79,36,.6);}
+.toast.am{border-color:rgba(212,180,90,.55);background:rgba(88,70,24,.6);}
 
 /* ── LOG / DEBUG ── */
 .log-wrap{display:none;}
@@ -1193,6 +1194,19 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   cursor:pointer;outline:none;
 }
 .hist-filtros select:focus{border-color:var(--ou);}
+/* Seletor de categoria na auditoria (produtos que o sistema não reconheceu) */
+.cat-sel{
+  background:var(--v1);border:1px solid var(--oud);color:var(--ou);
+  padding:5px 9px;font-family:'Barlow',sans-serif;font-size:11px;letter-spacing:.5px;
+  cursor:pointer;outline:none;min-width:150px;
+}
+.cat-sel:focus{border-color:var(--ou);}
+.cat-rm{
+  background:transparent;border:1px solid var(--oud);color:var(--cr3);
+  padding:4px 10px;font-family:'Barlow',sans-serif;font-size:9px;letter-spacing:1.5px;
+  text-transform:uppercase;cursor:pointer;
+}
+.cat-rm:hover{border-color:#c98b8b;color:#c98b8b;}
 .hist-vazio{
   text-align:center;padding:60px 20px;color:var(--cr3);
   border:1px dashed var(--oud);background:rgba(0,0,0,.1);
@@ -2119,6 +2133,7 @@ window.inicializarDashboardLogado = async function(){
 
   // Carrega dados da nuvem ANTES de tentar exibir
   await inicializarFirestoreCache();
+  carregarCatManual();
 
   if(ind){ ind.textContent = ''; ind.className = ''; }
 
@@ -2181,6 +2196,7 @@ const FS_CACHE = {
   equipeFixa: {},    // 'YYYY-M' -> { Funcionario: { salario, vale, horas } }
   adiantamentos: {}, // 'YYYY-M' -> { Colaborador: valor } (Larissa preenche; desconta do total)
   pagamentos: {},    // 'YYYY-M' -> { Colaborador: { nomeCompleto, funcao, salarioBase, vencimentos, descontos, liquido, itens:[] } }
+  catManual: {},     // 'global' -> { 'produto normalizado': {cat, nome} } — classificações feitas na mão
   carregado: false,
   carregando: false
 };
@@ -2247,6 +2263,87 @@ const REGRAS_CAT = [
   // outro produto na descrição vira sapato.
   {cat:'sapatos', termos:['amostra']}
 ];
+
+// ── CATEGORIAS DEFINIDAS NA MÃO ──
+// Quando um produto não casa com nenhuma regra acima, a pessoa que faz o
+// fechamento escolhe a categoria na tela de auditoria. A escolha fica salva
+// na nuvem e vale pros próximos meses — não precisa repetir.
+//   { 'produto ja normalizado': { cat: 'sapatos' | ... | '_excluir', nome: 'como veio na planilha' } }
+let CAT_MANUAL = {};
+
+// Lê a categoria escolhida na mão. Aceita o formato antigo (só a string da
+// categoria) pra não perder as escolhas já salvas na nuvem.
+function catManualDe(txNormalizado){
+  const v = CAT_MANUAL[txNormalizado];
+  if(!v) return null;
+  return typeof v === 'string' ? v : v.cat;
+}
+function catManualNome(txNormalizado){
+  const v = CAT_MANUAL[txNormalizado];
+  if(!v || typeof v === 'string') return txNormalizado;
+  return v.nome || txNormalizado;
+}
+
+// Categorias que podem ser escolhidas na mão (as reais + "não é venda")
+const CATS_ESCOLHIVEIS = ORDEM_CAT.concat(['_excluir']);
+
+function carregarCatManual(){
+  const d = fsLer('catManual', 'global');
+  CAT_MANUAL = (d && typeof d === 'object') ? {...d} : {};
+}
+
+function salvarCatManual(){
+  fsSalvar('catManual', 'global', CAT_MANUAL, {silencioso:true});
+}
+
+// Listas auxiliares: a auditoria referencia os produtos por índice, e não pelo
+// nome, pra descrição com aspas não quebrar o HTML do seletor.
+let SEM_CAT_LISTA = [];
+let CAT_MANUAL_LISTA = [];
+
+// Chamado pelo seletor de categoria na auditoria
+function definirCatManual(idx, cat){
+  if(!cat) return;
+  const produto = SEM_CAT_LISTA[idx];
+  if(!produto){ toast('Produto não encontrado — reprocesse o arquivo', 'er'); return; }
+  if(!CATS_ESCOLHIVEIS.includes(cat)){ toast('Categoria inválida', 'er'); return; }
+
+  const chave = normalizar(produto);
+  if(!chave){ toast('Produto sem descrição — não dá pra classificar', 'er'); return; }
+
+  CAT_MANUAL[chave] = { cat, nome: String(produto).trim() };
+  salvarCatManual();
+
+  const nome = cat === '_excluir' ? 'não é venda' : NOME_CAT[cat];
+  aplicarCatManual(`${String(produto).trim()} → ${nome}.`);
+}
+
+// Desfaz uma classificação manual
+function removerCatManual(idx){
+  const chave = CAT_MANUAL_LISTA[idx];
+  if(!chave || !CAT_MANUAL[chave]) return;
+  const cat = catManualDe(chave);
+  const nome = cat === '_excluir' ? 'não é venda' : NOME_CAT[cat];
+  const exibe = catManualNome(chave);
+  if(!confirm(`Desfazer a classificação de "${exibe}" como ${nome}?\n\nEle volta a ficar sem categoria e deixa de gerar comissão.`)) return;
+
+  delete CAT_MANUAL[chave];
+  salvarCatManual();
+  aplicarCatManual('Classificação desfeita.');
+}
+
+// Recalcula o fechamento com o mapa manual atualizado.
+// Só dá pra recalcular se o arquivo ainda estiver na memória — quando o mês foi
+// carregado da nuvem, o Excel não veio junto e é preciso subir de novo.
+function aplicarCatManual(msg){
+  if(ARQUIVO_BUFFER){
+    toast(`${msg} Recalculando...`, 'ok');
+    processarBuffer();
+  } else {
+    toast(`${msg} Suba a planilha de novo para recalcular o mês.`, 'am');
+    renderAuditoria();
+  }
+}
 
 // Fotos das vendedoras (carregadas dinamicamente do JSON)
 let FOTOS_VEND = {};
@@ -2368,6 +2465,13 @@ function normalizar(s){
     .trim();
 }
 
+// Escapa texto vindo da planilha antes de jogar no HTML
+function escHtml(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 // Match flexível para nomes de vendedoras (case-insensitive, sem acento, primeiro nome)
 function matchVendedora(texto){
   const tx = normalizar(texto);
@@ -2383,10 +2487,14 @@ function matchVendedora(texto){
   return null;
 }
 
-// Classifica produto por descrição
+// Classifica produto por descrição.
+// A escolha manual tem prioridade sobre as regras automáticas: se alguém já
+// disse o que aquele produto é, é isso que vale.
 function classificar(descr){
   const tx = normalizar(descr);
   if(!tx) return null;
+  const manual = catManualDe(tx);
+  if(manual) return manual;
   for(const r of REGRAS_CAT){
     for(const termo of r.termos){
       if(tx.includes(termo)) return r.cat;
@@ -3612,14 +3720,15 @@ async function inicializarFirestoreCache(){
 
   try {
     // Carrega todas as coleções em paralelo
-    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag] = await Promise.all([
+    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag, snapCatM] = await Promise.all([
       getDocs(collection(db, 'fechamentos')),
       getDocs(collection(db, 'metas')),
       getDocs(collection(db, 'atingimentos')),
       getDocs(collection(db, 'horasExtras')),
       getDocs(collection(db, 'equipeFixa')),
       getDocs(collection(db, 'adiantamentos')),
-      getDocs(collection(db, 'pagamentos'))
+      getDocs(collection(db, 'pagamentos')),
+      getDocs(collection(db, 'catManual'))
     ]);
 
     snapFech.forEach(d => { FS_CACHE.fechamentos[d.id] = d.data(); });
@@ -3629,6 +3738,7 @@ async function inicializarFirestoreCache(){
     snapFixa.forEach(d => { FS_CACHE.equipeFixa[d.id] = d.data(); });
     snapAdiant.forEach(d => { FS_CACHE.adiantamentos[d.id] = d.data(); });
     snapPag.forEach(d => { FS_CACHE.pagamentos[d.id] = d.data(); });
+    snapCatM.forEach(d => { FS_CACHE.catManual[d.id] = d.data(); });
 
     FS_CACHE.carregado = true;
     console.log('Firestore: cache carregado',
@@ -3769,6 +3879,7 @@ function fsSalvar(colecao, id, dados, opcoes){
     else if(colecao === 'equipeFixa') chaveLS = `loretto-fixa-${id}`;
     else if(colecao === 'adiantamentos') chaveLS = `loretto-adiant-${id}`;
     else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
+    else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
     if(chaveLS) localStorage.setItem(chaveLS, JSON.stringify(dados));
   } catch(e){}
 
@@ -3846,6 +3957,7 @@ function fsLer(colecao, id){
     else if(colecao === 'equipeFixa') chaveLS = `loretto-fixa-${id}`;
     else if(colecao === 'adiantamentos') chaveLS = `loretto-adiant-${id}`;
     else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
+    else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
     if(chaveLS){
       const raw = localStorage.getItem(chaveLS);
       if(raw) return JSON.parse(raw);
@@ -4569,6 +4681,11 @@ function renderAuditoria(){
     return;
   }
   const a = RESULTADO.auditoria;
+  const manuaisCat = Object.keys(CAT_MANUAL)
+    .map(chave => ({chave, cat: catManualDe(chave), nome: catManualNome(chave)}))
+    .filter(m => m.cat)
+    .sort((x,y)=>x.nome.localeCompare(y.nome));
+  CAT_MANUAL_LISTA = manuaisCat.map(m=>m.chave);
 
   // Conta total de problemas
   // Valores R$ 0 + Anomalias agora ficam juntos como "Valores Atípicos" (warn)
@@ -4581,7 +4698,8 @@ function renderAuditoria(){
     {tipo:'warn', count: a.possiveisDuplicatas.length, render:'duplicatas'},
     {tipo:'info', count: (a.parcerias || []).length, render:'parcerias'},
     {tipo:'info', count: (a.ecommerce || []).length, render:'ecommerce'},
-    {tipo:'info', count: (a.lancamentosGestao || []).length, render:'gestao'}
+    {tipo:'info', count: (a.lancamentosGestao || []).length, render:'gestao'},
+    {tipo:'info', count: manuaisCat.length, render:'catManual'}
   ];
   const totalErros = problemas.filter(p=>p.tipo==='erro').reduce((s,p)=>s+p.count,0);
   const totalWarns = problemas.filter(p=>p.tipo==='warn').reduce((s,p)=>s+p.count,0);
@@ -4643,22 +4761,47 @@ function renderAuditoria(){
     `);
   }
 
-  // Produtos sem categoria
+  // Produtos sem categoria — cada linha tem um seletor pra classificar na mão
   if(a.produtosSemCategoria.size){
     const arr = Array.from(a.produtosSemCategoria.entries())
       .map(([prod, info])=>({produto:prod, ...info}))
       .sort((x,y)=>y.valor_total - x.valor_total);
-    const rows = arr.slice(0,15).map(p=>`
+    // Guarda a lista pra o seletor referenciar por índice (evita passar o nome
+    // do produto dentro do atributo onchange, que quebraria com aspas na descrição)
+    SEM_CAT_LISTA = arr.map(p=>p.produto);
+    const opcoes = ORDEM_CAT.map(c=>`<option value="${c}">${NOME_CAT[c]}</option>`).join('')
+      + `<option value="_excluir">Não é venda (frete, taxa...)</option>`;
+    const rows = arr.map((p, i)=>`
       <tr>
-        <td>${p.produto}</td>
+        <td>${escHtml(p.produto)}</td>
         <td class="tnum">${fmtInt(p.ocorrencias)}</td>
         <td class="tnum">${fmtInt(p.qtd_total)}</td>
         <td class="tnum">${fmtBRL(p.valor_total)}</td>
+        <td>
+          <select class="cat-sel" onchange="definirCatManual(${i}, this.value)">
+            <option value="">— escolher categoria —</option>
+            ${opcoes}
+          </select>
+        </td>
       </tr>`).join('');
-    const restante = arr.length > 15 ? `<tr><td colspan="4" style="text-align:center;color:var(--cr3);font-style:italic;">... e mais ${arr.length-15} ${arr.length-15===1?'produto':'produtos'}</td></tr>` : '';
     html += secAud('sem-cat', `Produtos sem categoria identificada`, a.produtosSemCategoria.size, 'warn', `
-      <p>Estes produtos <strong>não geraram comissão</strong> porque não foram classificados em nenhuma categoria. Se forem produtos válidos, atualize as regras de classificação.</p>
-      <table><thead><tr><th>Produto</th><th class="tnum">Linhas</th><th class="tnum">Qtd Total</th><th class="tnum">Valor Total</th></tr></thead><tbody>${rows}${restante}</tbody></table>
+      <p>Estes produtos <strong>não geraram comissão</strong> porque o sistema não reconheceu o que eles são. <strong>Escolha a categoria de cada um na coluna da direita</strong> — o fechamento é recalculado na hora e a escolha fica salva pros próximos meses.</p>
+      <table><thead><tr><th>Produto</th><th class="tnum">Linhas</th><th class="tnum">Qtd Total</th><th class="tnum">Valor Total</th><th>Categoria</th></tr></thead><tbody>${rows}</tbody></table>
+    `);
+  }
+
+  // Categorias que alguém definiu na mão — pra conferir e desfazer se errou
+  if(manuaisCat.length){
+    const rows = manuaisCat.map((m, i)=>`
+      <tr>
+        <td>${escHtml(m.nome)}</td>
+        <td>${m.cat === '_excluir' ? 'Não é venda (não conta)' : (NOME_CAT[m.cat] || m.cat)}</td>
+        <td class="tnum">${m.cat === '_excluir' ? '—' : fmtBRL(COMISSAO[m.cat] || 0)}</td>
+        <td><button class="cat-rm" onclick="removerCatManual(${i})">Desfazer</button></td>
+      </tr>`).join('');
+    html += secAud('cat-manual', `Categorias definidas na mão`, manuaisCat.length, 'info', `
+      <p>Produtos que o sistema não reconhecia e que alguém classificou manualmente. Valem para <strong>todos os meses</strong> e têm prioridade sobre as regras automáticas. Se alguma estiver errada, é só desfazer.</p>
+      <table><thead><tr><th>Produto</th><th>Categoria</th><th class="tnum">Comissão/un.</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     `);
   }
 

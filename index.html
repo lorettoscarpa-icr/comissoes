@@ -1237,6 +1237,31 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .ref-prova strong{color:var(--ou2);font-weight:600;}
 .ref-prova-nota{display:block;font-style:italic;margin-top:3px;opacity:.75;}
 .ref-pista{color:#e8c07a;}
+/* Lista de Bônus puxada da Central de Metas */
+.bonus-card{
+  border:1px solid var(--oud);background:rgba(201,168,76,.05);
+  padding:20px 22px;margin-bottom:24px;
+}
+.bonus-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+.bonus-tit{
+  font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--ou);
+  font-weight:300;letter-spacing:2px;text-transform:uppercase;
+}
+.bonus-sub{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--cr3);margin-top:4px;}
+.bonus-total{font-family:'Cormorant Garamond',serif;font-size:28px;color:#6dbf6d;font-weight:300;}
+.bonus-tab{width:100%;border-collapse:collapse;font-size:12px;}
+.bonus-tab th{
+  text-align:left;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--cr3);padding:7px 8px;border-bottom:1px solid var(--oud2);font-weight:600;
+}
+.bonus-tab td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--cr2);}
+.bonus-tab .tnum{text-align:right;}
+.bonus-det td{font-size:10px;color:var(--cr3);padding:2px 8px 6px 20px;border-bottom:none;font-style:italic;}
+.bonus-aviso{
+  border-left:3px solid #d4b45a;background:rgba(212,180,90,.1);
+  padding:10px 13px;font-size:11px;color:var(--ou2);line-height:1.6;margin-bottom:12px;
+}
+.bonus-vazio{text-align:center;padding:26px 16px;color:var(--cr3);font-size:12px;line-height:1.8;}
 .ref-pista-lin{font-size:10px;color:var(--cr3);margin-top:5px;}
 .ref-alerta{border-left:3px solid #c98b8b;background:rgba(192,80,74,.1);padding:12px 14px;font-size:12px;color:#e0b0ac;line-height:1.6;margin-bottom:12px;}
 .ref-alerta.ok{border-left-color:#6dbf6d;background:rgba(54,79,36,.35);color:#a8d4a8;}
@@ -2308,6 +2333,7 @@ const FS_CACHE = {
   pagamentos: {},    // 'YYYY-M' -> { Colaborador: { nomeCompleto, funcao, salarioBase, vencimentos, descontos, liquido, itens:[] } }
   catManual: {},     // 'global' -> { 'produto normalizado': {cat, nome} } — classificações feitas na mão
   catsExtras: {},    // 'global' -> { itens: { id: {nome, comissao, criadaEm} } } — categorias criadas na tela
+  bonusApurado: {},  // 'AAAA_MM' -> bônus apurado publicado pelo app de Metas (só leitura aqui)
   carregado: false,
   carregando: false
 };
@@ -4016,7 +4042,7 @@ async function inicializarFirestoreCache(){
 
   try {
     // Carrega todas as coleções em paralelo
-    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag, snapCatM, snapCatX] = await Promise.all([
+    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag, snapCatM, snapCatX, snapBon] = await Promise.all([
       getDocs(collection(db, 'fechamentos')),
       getDocs(collection(db, 'metas')),
       getDocs(collection(db, 'atingimentos')),
@@ -4025,7 +4051,8 @@ async function inicializarFirestoreCache(){
       getDocs(collection(db, 'adiantamentos')),
       getDocs(collection(db, 'pagamentos')),
       getDocs(collection(db, 'catManual')),
-      getDocs(collection(db, 'catsExtras'))
+      getDocs(collection(db, 'catsExtras')),
+      getDocs(collection(db, 'ls_bonus_apurado'))
     ]);
 
     snapFech.forEach(d => { FS_CACHE.fechamentos[d.id] = d.data(); });
@@ -4037,6 +4064,7 @@ async function inicializarFirestoreCache(){
     snapPag.forEach(d => { FS_CACHE.pagamentos[d.id] = d.data(); });
     snapCatM.forEach(d => { FS_CACHE.catManual[d.id] = d.data(); });
     snapCatX.forEach(d => { FS_CACHE.catsExtras[d.id] = d.data(); });
+    snapBon.forEach(d => { FS_CACHE.bonusApurado[d.id] = d.data(); });
 
     FS_CACHE.carregado = true;
     console.log('Firestore: cache carregado',
@@ -4179,6 +4207,7 @@ function fsSalvar(colecao, id, dados, opcoes){
     else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
     else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
     else if(colecao === 'catsExtras') chaveLS = `loretto-catsextras-${id}`;
+    else if(colecao === 'bonusApurado') chaveLS = `loretto-bonusap-${id}`;
     if(chaveLS) localStorage.setItem(chaveLS, JSON.stringify(dados));
   } catch(e){}
 
@@ -4258,6 +4287,7 @@ function fsLer(colecao, id){
     else if(colecao === 'pagamentos') chaveLS = `loretto-pag-${id}`;
     else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
     else if(colecao === 'catsExtras') chaveLS = `loretto-catsextras-${id}`;
+    else if(colecao === 'bonusApurado') chaveLS = `loretto-bonusap-${id}`;
     if(chaveLS){
       const raw = localStorage.getItem(chaveLS);
       if(raw) return JSON.parse(raw);
@@ -4680,6 +4710,64 @@ async function importarRecibosPDF(file){
   }
 }
 
+// ── LISTA DE BÔNUS (vem do app de Metas) ──
+// O cálculo é feito lá, onde moram as regras; aqui a gente só mostra.
+// A chave do Metas é AAAA_MM (mês 1-12), diferente da chave daqui.
+function lerBonusApurado(){
+  const id = `${DATA_ATUAL.getFullYear()}_${String(DATA_ATUAL.getMonth()+1).padStart(2,'0')}`;
+  return fsLer('bonusApurado', id);
+}
+
+function blocoBonusHTML(){
+  const b = lerBonusApurado();
+  const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
+
+  if(!b){
+    return `<div class="bonus-card">
+      <div class="bonus-head">
+        <div><div class="bonus-tit">Lista de Bônus — ${mesAno}</div>
+        <div class="bonus-sub">Quem ganhou e quanto pagar</div></div>
+      </div>
+      <div class="bonus-vazio">Nenhuma lista de bônus publicada para ${mesAno}.<br>
+        Ela aparece aqui depois que alguém gera a <strong>Lista de Bônus</strong> na Central de Metas.</div>
+    </div>`;
+  }
+
+  const premiadas = b.premiadas || [];
+  const emitido = b.emitidoEm ? new Date(b.emitidoEm).toLocaleDateString('pt-BR') : '';
+
+  const linhas = premiadas.length
+    ? premiadas.map(r=>`
+        <tr>
+          <td>${escHtml(r.nome)}</td>
+          <td class="tnum">${fmtInt((r.linhas||[]).length)}</td>
+          <td class="tnum">${fmtBRL(r.total)}</td>
+        </tr>
+        ${(r.linhas||[]).map(l=>`<tr class="bonus-det"><td colspan="3">${escHtml(l.desc)} — ${fmtBRL(l.valor)}</td></tr>`).join('')}`).join('')
+    : `<tr><td colspan="3" style="text-align:center;color:var(--cr3);font-style:italic;">Nenhum bônus a pagar neste mês.</td></tr>`;
+
+  const avisos = [];
+  if(b.emAndamento) avisos.push('<div class="bonus-aviso"><strong>Mês ainda em andamento quando esta lista foi gerada.</strong> Os valores são prévia e podem ter mudado — gere de novo na Central de Metas antes de pagar.</div>');
+  (b.empates || []).forEach(e=>{
+    avisos.push(`<div class="bonus-aviso">Empate em <strong>${escHtml(e.nome)}</strong>: ${(e.quem||[]).map(escHtml).join(' e ')} — ${fmtBRL(e.valor)} dividido em ${fmtBRL(e.cota)} para cada.</div>`);
+  });
+
+  return `<div class="bonus-card">
+    <div class="bonus-head">
+      <div>
+        <div class="bonus-tit">Lista de Bônus — ${mesAno}</div>
+        <div class="bonus-sub">Referência ${mesAno}${emitido ? ` · gerada em ${emitido}` : ''} · vem da Central de Metas</div>
+      </div>
+      <div class="bonus-total">${fmtBRL(b.total || 0)}</div>
+    </div>
+    ${avisos.join('')}
+    <table class="bonus-tab">
+      <thead><tr><th>Vendedora</th><th class="tnum">Itens</th><th class="tnum">A pagar</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+  </div>`;
+}
+
 function renderPagamentos(){
   const cont = document.getElementById('pag-content');
   if(!cont) return;
@@ -4693,7 +4781,8 @@ function renderPagamentos(){
   });
   const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
   if(!nomes.length){
-    cont.innerHTML = `<div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
+    cont.innerHTML = blocoBonusHTML() +
+      `<div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
     return;
   }
   let totV=0,totD=0,totL=0;
@@ -4752,7 +4841,7 @@ function renderPagamentos(){
     grupos += `<div class="slbl">Sócios</div><div class="pag-grid">${socios.map(cardHTML).join('')}</div>`;
   }
 
-  cont.innerHTML = `
+  cont.innerHTML = blocoBonusHTML() + `
     <div class="fx-resumo">
       <div>
         <div class="lbl">Total Líquido Pago — ${mesAno}</div>

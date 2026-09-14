@@ -1221,6 +1221,31 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .nc-moeda{display:flex;align-items:center;gap:8px;}
 .nc-moeda span{font-family:'Cormorant Garamond',serif;font-size:16px;color:var(--ou2);}
 .nc-dica{font-size:11px;color:var(--cr3);margin-top:7px;line-height:1.5;}
+/* Corretor de mês de referência */
+.ref-passo{border:1px solid var(--oud2);background:rgba(0,0,0,.15);padding:16px 18px;margin-bottom:14px;}
+.ref-passo h3{
+  font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--ou2);
+  margin:0 0 8px;font-weight:600;
+}
+.ref-passo p{font-size:12px;color:var(--cr3);line-height:1.6;margin:0 0 12px;}
+.ref-tab{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;}
+.ref-tab th{
+  text-align:left;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--cr3);padding:6px 8px;border-bottom:1px solid var(--oud2);font-weight:600;
+}
+.ref-tab td{padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--cr2);}
+.ref-tab .seta{color:var(--ou);font-weight:600;}
+.ref-alerta{
+  border-left:3px solid #c98b8b;background:rgba(192,80,74,.1);
+  padding:12px 14px;font-size:12px;color:#e0b0ac;line-height:1.6;margin-bottom:14px;
+}
+.ref-ok{border-left-color:#6dbf6d;background:rgba(54,79,36,.35);color:#a8d4a8;}
+.ref-conf{
+  width:100%;background:rgba(255,255,255,.04);border:1px solid var(--oud);
+  color:var(--cr);padding:8px 10px;font-family:'Barlow',sans-serif;font-size:13px;
+  letter-spacing:1px;outline:none;margin-top:8px;
+}
+.ref-conf:focus{border-color:var(--ou);}
 .hist-vazio{
   text-align:center;padding:60px 20px;color:var(--cr3);
   border:1px dashed var(--oud);background:rgba(0,0,0,.1);
@@ -2031,6 +2056,17 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-ref" onclick="if(event.target===this)fecharModalRef()">
+  <div class="modal" style="max-width:780px;">
+    <h2>Mês de Referência</h2>
+    <div class="sub">Conferir e corrigir em que mês cada fechamento está guardado</div>
+    <div id="ref-corpo"><!-- preenchido via JS --></div>
+    <div class="modal-acoes">
+      <button class="bup" onclick="fecharModalRef()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-nova-cat" onclick="if(event.target===this)fecharModalNovaCat()">
   <div class="modal" style="max-width:520px;">
     <h2 id="modal-nova-cat-tit">Nova Categoria</h2>
@@ -2679,6 +2715,46 @@ function matchVendedora(texto){
   return null;
 }
 
+// ── MÊS DE REFERÊNCIA ──
+// Converte uma célula de data da planilha (Date, serial do Excel ou texto)
+// numa data de verdade. Devolve null quando não dá pra entender.
+function lerDataCelula(bruto){
+  if(bruto instanceof Date && !isNaN(bruto)) return bruto;
+  if(typeof bruto === 'number' && isFinite(bruto) && bruto > 0){
+    // Serial do Excel: 25569 = 01/01/1970
+    const d = new Date((bruto - 25569) * 86400000);
+    return isNaN(d) ? null : d;
+  }
+  if(typeof bruto === 'string' && bruto.trim()){
+    const t = bruto.trim();
+    const br = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);   // dd/mm/aaaa
+    if(br){
+      let ano = parseInt(br[3], 10);
+      if(ano < 100) ano += 2000;
+      const d = new Date(ano, parseInt(br[2],10) - 1, parseInt(br[1],10));
+      return isNaN(d) ? null : d;
+    }
+    const iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);        // aaaa-mm-dd
+    if(iso) return new Date(parseInt(iso[1],10), parseInt(iso[2],10)-1, parseInt(iso[3],10));
+    const d = new Date(t);
+    return isNaN(d) ? null : d;
+  }
+  return null;
+}
+
+// Recebe a contagem de vendas por mês e devolve o mês dominante do arquivo
+function mesDominante(contagem){
+  const chaves = Object.keys(contagem);
+  if(!chaves.length) return null;
+  let total = 0, melhor = null, melhorQtd = 0;
+  chaves.forEach(k=>{
+    total += contagem[k];
+    if(contagem[k] > melhorQtd){ melhorQtd = contagem[k]; melhor = k; }
+  });
+  const [ano, mes] = melhor.split('-').map(Number);
+  return {ano, mes, linhas: melhorQtd, total, pct: melhorQtd / total};
+}
+
 // Classifica produto por descrição.
 // A escolha manual tem prioridade sobre as regras automáticas: se alguém já
 // disse o que aquele produto é, é isso que vale.
@@ -3028,6 +3104,7 @@ function processarFormatoKigi(linhas, blocos){
   let totalVendas = 0;
   const semCategoriaItens = new Set();
   const vendedorasNaoListadas = new Map();
+  const contagemMesArquivo = {};   // 'ano-mes' -> nº de vendas, pra achar o mês de referência
 
   // Auditoria
   const auditoria = {
@@ -3176,24 +3253,15 @@ function processarFormatoKigi(linhas, blocos){
       totalVendas++;
 
       // ── PorDia: captura o dia da venda (1-31) ──
+      // e, de quebra, o mês/ano — é ele que diz a qual período o arquivo se refere
       if(colMap.data !== undefined){
         const dataRaw = lin[colMap.data];
         let dia = null;
-        if(dataRaw instanceof Date){
-          dia = dataRaw.getDate();
-        } else if(typeof dataRaw === 'number'){
-          // Número serial Excel — converte
-          // Excel: 1 = 1900-01-01 (com bug do ano bissexto). Subtrai 25569 dias e converte
-          const ms = (dataRaw - 25569) * 86400000;
-          dia = new Date(ms).getUTCDate();
-        } else if(typeof dataRaw === 'string' && dataRaw.trim()){
-          // Tenta parsear "dd/mm/yyyy" ou "yyyy-mm-dd"
-          const m = dataRaw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-          if(m) dia = parseInt(m[1], 10);
-          else {
-            const d = new Date(dataRaw);
-            if(!isNaN(d)) dia = d.getDate();
-          }
+        const dt = lerDataCelula(dataRaw);
+        if(dt){
+          dia = dt.getDate();
+          const chaveMes = `${dt.getFullYear()}-${dt.getMonth()}`;
+          contagemMesArquivo[chaveMes] = (contagemMesArquivo[chaveMes] || 0) + 1;
         }
         if(dia && dia >= 1 && dia <= 31){
           if(!result[vend]._porDia[dia]){
@@ -3377,11 +3445,12 @@ function processarFormatoKigi(linhas, blocos){
 
   RESULTADO = {
     result, totalGeralValor, totalGeralPecas, totalVendas,
-    excluidos, semVendedora, semCategoria, auditoria
+    excluidos, semVendedora, semCategoria, auditoria,
+    refArquivo: mesDominante(contagemMesArquivo)
   };
 
   renderizar();
-  salvarFechamentoMes();
+  salvarFechamentoConferindoMes();
   // Atualiza UI de upload com totals do processamento
   setUploadCarregado({
     nomeArquivo: ARQUIVO_NOME,
@@ -4384,10 +4453,54 @@ function _numRecibo(s){
 
 // Lê o PDF de recibos. Layout (consistente): 1 colaborador por página, via de cima.
 // Soma das colunas Vencimentos e Descontos da tabela de itens = totais do recibo; líquido = V − D.
+// Procura no texto do recibo a que mês ele se refere. Tenta, em ordem:
+// "Competência 08/2026", "Referência AGOSTO/2026", ou um MM/AAAA solto.
+// Devolve null quando não encontra — aí a gente pergunta em vez de chutar.
+const MESES_TXT = ['janeiro','fevereiro','marco','abril','maio','junho',
+                   'julho','agosto','setembro','outubro','novembro','dezembro'];
+
+function acharCompetencia(texto){
+  const t = normalizar(texto);
+
+  // "competencia: 08/2026" / "referencia 08/2026" / "mes/ano 08/2026"
+  // [a-z]* consome o resto da palavra ("compet" + "encia"), senão "competencia
+  // agosto/2026" não casa
+  let m = t.match(/(?:compet[a-z]*|refer[a-z]*|mes\s*\/?\s*ano)[^0-9]{0,20}(\d{1,2})\s*\/\s*(\d{4})/);
+  if(m){
+    const mes = parseInt(m[1],10) - 1, ano = parseInt(m[2],10);
+    if(mes >= 0 && mes <= 11) return {ano, mes, origem:'competência no recibo'};
+  }
+
+  // "competencia: agosto/2026" ou "agosto de 2026"
+  m = t.match(/(?:compet[a-z]*|refer[a-z]*)[^a-z0-9]{0,20}([a-z]+)\s*(?:\/|de)\s*(\d{4})/);
+  if(m){
+    const i = MESES_TXT.indexOf(m[1]);
+    if(i >= 0) return {ano: parseInt(m[2],10), mes: i, origem:'competência no recibo'};
+  }
+
+  // Último recurso: um MM/AAAA solto (sem dia antes), o mais frequente
+  const contagem = {};
+  const re = /(?:^|[^\d\/])(\d{1,2})\s*\/\s*(\d{4})(?![\d\/])/g;
+  let g;
+  while((g = re.exec(t)) !== null){
+    const mes = parseInt(g[1],10) - 1, ano = parseInt(g[2],10);
+    if(mes < 0 || mes > 11 || ano < 2020 || ano > 2100) continue;
+    const k = `${ano}-${mes}`;
+    contagem[k] = (contagem[k] || 0) + 1;
+  }
+  const chaves = Object.keys(contagem);
+  if(chaves.length === 1){
+    const [ano, mes] = chaves[0].split('-').map(Number);
+    return {ano, mes, origem:'data encontrada no recibo'};
+  }
+  return null;
+}
+
 async function parseRecibosPDF(arrayBuffer){
   if(!window.pdfjsLib) throw new Error('pdf.js não carregou (sem internet?)');
   const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
   const registros = [];
+  const textoPaginas = [];
   for(let pg=1; pg<=pdf.numPages; pg++){
     const page = await pdf.getPage(pg);
     const H = page.getViewport({scale:1}).height;
@@ -4446,12 +4559,53 @@ async function parseRecibosPDF(arrayBuffer){
         if(sb) salarioBase = _numRecibo(sb.s);
       }
     });
+    // Guarda o texto da página pra procurar a competência depois
+    textoPaginas.push(linhas.map(l=>txt(l)).join(' | '));
+
     if(!nomeCompleto || !itens.length) continue;
     const vencimentos = itens.reduce((s,i)=> s+(i.venc||0), 0);
     const descontos   = itens.reduce((s,i)=> s+(i.desc||0), 0);
     registros.push({nomeCompleto, funcao, salarioBase, vencimentos, descontos, liquido: vencimentos - descontos, itens});
   }
+  registros.competencia = acharCompetencia(textoPaginas.join(' \n '));
   return registros;
+}
+
+// Decide em que mês a folha vai ser gravada. Se achou a competência no recibo,
+// só confirma; se não achou, pergunta. Nunca grava sem a pessoa ver o mês.
+function escolherMesDaFolha(competencia){
+  const rotuloSel = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
+
+  if(competencia){
+    const rotuloRef = `${MESES[competencia.mes]} ${competencia.ano}`;
+    if(competencia.ano === DATA_ATUAL.getFullYear() && competencia.mes === DATA_ATUAL.getMonth()){
+      return {ano: competencia.ano, mes: competencia.mes};
+    }
+    const usarRef = confirm(
+      `Estes recibos são de ${rotuloRef.toUpperCase()} (${competencia.origem}).\n` +
+      `O painel está em ${rotuloSel.toUpperCase()}.\n\n` +
+      `Gravar em ${rotuloRef}?\n\n` +
+      `OK = gravar em ${rotuloRef} (o correto: mês de referência)\n` +
+      `Cancelar = escolher o mês na mão`
+    );
+    if(usarRef) return {ano: competencia.ano, mes: competencia.mes};
+  }
+
+  // Sem competência no PDF (ou recusada): pergunta em texto, formato MM/AAAA
+  const sugestao = `${String(DATA_ATUAL.getMonth()+1).padStart(2,'0')}/${DATA_ATUAL.getFullYear()}`;
+  const resp = prompt(
+    `A que MÊS DE REFERÊNCIA estes recibos pertencem?\n\n` +
+    `Use o mês do período trabalhado, não o mês em que o pagamento foi feito.\n` +
+    `Formato: MM/AAAA`,
+    sugestao
+  );
+  if(resp === null) return null;
+
+  const m = String(resp).trim().match(/^(\d{1,2})\s*\/\s*(\d{4})$/);
+  if(!m){ toast('Mês inválido — use MM/AAAA', 'er'); return null; }
+  const mes = parseInt(m[1],10) - 1, ano = parseInt(m[2],10);
+  if(mes < 0 || mes > 11 || ano < 2020 || ano > 2100){ toast('Mês fora do intervalo', 'er'); return null; }
+  return {ano, mes};
 }
 
 async function importarRecibosPDF(file){
@@ -4469,10 +4623,23 @@ async function importarRecibosPDF(file){
     }
     const obj = {};
     regs.forEach(r=>{ obj[nomeExib(r.nomeCompleto)] = r; });
+
+    // A folha tem que ficar no mês a que ela SE REFERE, não no mês do pagamento
+    const destino = escolherMesDaFolha(regs.competencia);
+    if(!destino){
+      body.innerHTML = '<div style="font-size:12px;color:var(--cr3);padding:4px 0;">Importação cancelada — nada foi gravado.</div>';
+      return;
+    }
+    if(destino.ano !== DATA_ATUAL.getFullYear() || destino.mes !== DATA_ATUAL.getMonth()){
+      DATA_ATUAL = new Date(destino.ano, destino.mes, 1);
+      atualizarMesUI();
+      carregarMesAtual();
+    }
     salvarPagamentos(obj);
-    body.innerHTML = `<div style="font-size:12px;color:#6dbf6d;padding:4px 0;">✓ ${regs.length} recibos lidos: ${Object.keys(obj).join(', ')}</div>`;
+    const rotulo = `${MESES[destino.mes]} ${destino.ano}`;
+    body.innerHTML = `<div style="font-size:12px;color:#6dbf6d;padding:4px 0;">✓ ${regs.length} recibos lidos e gravados em <strong>${rotulo}</strong>: ${Object.keys(obj).join(', ')}</div>`;
     renderPagamentos();
-    toast(`${regs.length} recibos importados`, 'ok');
+    toast(`${regs.length} recibos importados em ${rotulo}`, 'ok');
   }catch(e){
     console.error(e);
     body.innerHTML = `<div style="font-size:12px;color:#e09e9a;padding:4px 0;">Erro ao ler o PDF: ${e.message}</div>`;
@@ -4727,6 +4894,58 @@ function chaveFech(ano, mes){  // mantida pra compat com código antigo
 function chaveMesTemDados(ano, mes){
   return fsLer('fechamentos', idFech(ano, mes)) !== null;
 }
+// Antes de gravar, confere se o mês selecionado no painel bate com o período
+// do arquivo. O fechamento tem que ficar no mês a que ele SE REFERE, não no mês
+// em que o pagamento está sendo feito.
+function salvarFechamentoConferindoMes(){
+  const ref = RESULTADO && RESULTADO.refArquivo;
+
+  // Sem coluna de data legível: não dá pra conferir, grava onde está
+  if(!ref){
+    log('⚠ O arquivo não tem data legível — não deu pra conferir o mês de referência', 'am');
+    salvarFechamentoMes();
+    return;
+  }
+
+  const mesmoMes = (ref.ano === DATA_ATUAL.getFullYear() && ref.mes === DATA_ATUAL.getMonth());
+  const rotuloRef = `${MESES[ref.mes]} ${ref.ano}`;
+  const rotuloSel = `${MESES[DATA_ATUAL.getMonth()]} ${DATA_ATUAL.getFullYear()}`;
+
+  if(mesmoMes){
+    log(`✓ Mês de referência confere: as vendas são de ${rotuloRef}`);
+    salvarFechamentoMes();
+    return;
+  }
+
+  // Arquivo com vendas espalhadas em vários meses — avisa, mas não decide sozinho
+  const misturado = ref.pct < 0.8;
+  const detalhe = misturado
+    ? `\n\nAtenção: o arquivo tem vendas de mais de um mês. ${ref.linhas} de ${ref.total} vendas são de ${rotuloRef}.`
+    : '';
+
+  log(`⚠ As vendas do arquivo são de ${rotuloRef}, mas o painel está em ${rotuloSel}`, 'am');
+
+  const trocar = confirm(
+    `As vendas deste arquivo são de ${rotuloRef.toUpperCase()}.\n` +
+    `O painel está em ${rotuloSel.toUpperCase()}.${detalhe}\n\n` +
+    `Gravar este fechamento em ${rotuloRef}?\n\n` +
+    `OK = gravar em ${rotuloRef} (o correto: mês da venda)\n` +
+    `Cancelar = gravar em ${rotuloSel} mesmo assim`
+  );
+
+  if(trocar){
+    DATA_ATUAL = new Date(ref.ano, ref.mes, 1);
+    atualizarMesUI();
+    salvarFechamentoMes();
+    log(`✓ Fechamento gravado em ${rotuloRef}`);
+    toast(`Gravado em ${rotuloRef}`, 'ok');
+  } else {
+    salvarFechamentoMes();
+    log(`Fechamento gravado em ${rotuloSel} por escolha sua`, 'am');
+    toast(`Gravado em ${rotuloSel}`, 'am');
+  }
+}
+
 function salvarFechamentoMes(){
   if(!RESULTADO) return;
   try{
@@ -4754,6 +4973,7 @@ function salvarFechamentoMes(){
       auditoria: auditoriaSer,
       horasExtras: horasSer,
       arquivoNome: ARQUIVO_NOME,
+      refArquivo: RESULTADO.refArquivo || null,   // período que o arquivo cobre
       salvoEm: new Date().toISOString()
     };
     fsSalvar('fechamentos', idFech(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth()), dados);

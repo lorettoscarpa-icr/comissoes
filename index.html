@@ -1236,6 +1236,8 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .ref-prova td{font-size:10px;color:var(--cr3);background:rgba(0,0,0,.22);line-height:1.7;padding:8px 10px 10px;}
 .ref-prova strong{color:var(--ou2);font-weight:600;}
 .ref-prova-nota{display:block;font-style:italic;margin-top:3px;opacity:.75;}
+.ref-pista{color:#e8c07a;}
+.ref-pista-lin{font-size:10px;color:var(--cr3);margin-top:5px;}
 .ref-alerta{border-left:3px solid #c98b8b;background:rgba(192,80,74,.1);padding:12px 14px;font-size:12px;color:#e0b0ac;line-height:1.6;margin-bottom:12px;}
 .ref-alerta.ok{border-left-color:#6dbf6d;background:rgba(54,79,36,.35);color:#a8d4a8;}
 /* Corretor de mês de referência */
@@ -5651,16 +5653,16 @@ function periciarMes(dadosFech, anoRot, mesRot){
   };
 }
 
-// Impressão digital do fechamento. Se dois meses batem, não são meses
-// diferentes deslocados: é o mesmo relatório subido duas vezes.
+// Teste de duplicata: itens, vendas e valor. Se os três batem, é o mesmo
+// relatório subido duas vezes — não dois meses diferentes. É o teste que
+// decide; o resto da análise é pista.
 function impressaoDigital(dadosFech){
   if(!dadosFech) return '';
-  const dias = [...diasComVenda(dadosFech)].sort((a,b)=>a-b).join(',');
-  const pecas = Math.round(Number(dadosFech.totalGeralPecas) || 0);
-  const valor = Math.round((Number(dadosFech.totalGeralValor) || 0) * 100);
+  const itens  = Math.round(Number(dadosFech.totalGeralPecas) || 0);
   const vendas = Math.round(Number(dadosFech.totalVendas) || 0);
-  if(!pecas && !valor && !dias) return '';
-  return `${pecas}|${valor}|${vendas}|${dias}`;
+  const valor  = Math.round((Number(dadosFech.totalGeralValor) || 0) * 100);
+  if(!itens && !vendas && !valor) return '';
+  return `${itens}|${vendas}|${valor}`;
 }
 
 // Levanta todos os meses guardados e periciar cada um
@@ -5680,8 +5682,9 @@ function refDiagnostico(){
         const p = refParseId(id);
         meses[id].pericia = periciarMes(dados, p.ano, p.mes);
         meses[id].digital = impressaoDigital(dados);
-        meses[id].pecas = Number(dados.totalGeralPecas) || 0;
-        meses[id].valor = Number(dados.totalGeralValor) || 0;
+        meses[id].pecas  = Number(dados.totalGeralPecas) || 0;
+        meses[id].vendas = Number(dados.totalVendas) || 0;
+        meses[id].valor  = Number(dados.totalGeralValor) || 0;
       }
     });
   });
@@ -5803,6 +5806,14 @@ function fecharModalRef(){
   document.getElementById('modal-ref').classList.remove('open');
 }
 
+// Move para o mês que a pessoa escolheu no seletor
+function moverParaEscolhido(idOrigem){
+  const sel = document.getElementById(`ref-dest-${idOrigem}`);
+  if(!sel || !sel.value){ toast('Escolha o mês de destino primeiro', 'am'); return; }
+  const [ano, mes] = sel.value.split('|').map(Number);
+  reencaixarMes(idOrigem, ano, mes);
+}
+
 function renderModalRef(){
   const corpo = document.getElementById('ref-corpo');
   if(!corpo) return;
@@ -5813,92 +5824,80 @@ function renderModalRef(){
     return;
   }
 
-  let deslocados = 0, inconclusivos = 0, repetidos = 0, choques = 0;
+  let repetidos = 0, comPista = 0;
   const linhas = diag.map(d=>{
     const o = refParseId(d.id);
     const per = d.pericia;
-    let veredito, acao = '—';
 
-    if(!per){
-      veredito = '<span class="ref-dunno">sem fechamento de vendas</span>';
-    } else if(!per.conclusivo){
-      inconclusivos++;
-      veredito = `<span class="ref-dunno">não deu pra afirmar<br><span style="font-size:10px;">${escHtml(per.motivo)}</span></span>`;
-    } else if(per.bateComRotulo){
-      veredito = `<span class="ref-ok2">✓ confere — é ${refRotulo(per.melhor.ano, per.melhor.mes)}</span>`;
-    } else {
-      deslocados++;
-      veredito = `<span class="ref-mal">✗ na verdade é ${refRotulo(per.melhor.ano, per.melhor.mes)}</span>`;
-    }
-
-    // ── Relatório repetido: números idênticos aos de outro mês ──
+    // ── TESTE QUE DECIDE: itens, vendas e valor iguais = mesmo relatório ──
+    let situacao;
     if(d.gemeos && d.gemeos.length){
       repetidos++;
       const outros = d.gemeos.map(i=>{ const q = refParseId(i); return refRotulo(q.ano, q.mes); }).join(' e ');
-      veredito += `<div class="ref-rep">⚠ números idênticos aos de ${outros} — é o mesmo relatório subido duas vezes, não um mês deslocado</div>`;
+      situacao = `<span class="ref-mal">DUPLICADO</span>
+        <div class="ref-rep">Itens, vendas e valor idênticos aos de ${outros}. É o mesmo relatório subido duas vezes — um dos dois é cópia, e o mês verdadeiro pode nunca ter sido processado.</div>`;
+    } else {
+      situacao = `<span class="ref-ok2">relatório único</span>`;
     }
 
-    // ── Botão de mover: só quando não há choque de destino ──
-    if(per && per.conclusivo && !per.bateComRotulo){
-      const alvo = refRotulo(per.melhor.ano, per.melhor.mes);
-      if(d.choque && d.choque.length){
-        choques++;
-        const outros = d.choque.map(i=>{ const q = refParseId(i); return refRotulo(q.ano, q.mes); }).join(' e ');
-        acao = `<span class="ref-dunno">bloqueado — ${outros} também aponta para ${alvo}</span>`;
-      } else {
-        acao = `<button class="cat-rm" onclick="reencaixarMes('${d.id}', ${per.melhor.ano}, ${per.melhor.mes})">Mover para ${alvo}</button>`;
-      }
+    // ── PISTA (não é veredito): o calendário dos dias com venda ──
+    let pista = '<span class="ref-dunno">—</span>';
+    let sugerido = '';
+    if(per && per.conclusivo){
+      comPista++;
+      sugerido = refMontaId(per.melhor.ano, per.melhor.mes);
+      const igual = per.bateComRotulo;
+      pista = `<span class="${igual ? 'ref-ok2' : 'ref-pista'}">${igual ? 'compatível com o próprio mês' : 'parece ser ' + refRotulo(per.melhor.ano, per.melhor.mes)}</span>`;
+    } else if(per){
+      pista = `<span class="ref-dunno">não deu pra dizer<br><span style="font-size:10px;">${escHtml(per.motivo)}</span></span>`;
     }
 
-    const tam = d.pecas ? `${fmtInt(d.pecas)} pç · ${fmtBRL(d.valor)}` : '—';
+    // ── Destino: quem escolhe é você ──
+    const opcoes = [-3,-2,-1,1,2,3].map(delta=>{
+      const dt = new Date(o.ano, o.mes + delta, 1);
+      const id = refMontaId(dt.getFullYear(), dt.getMonth());
+      const sel = (id === sugerido) ? ' selected' : '';
+      return `<option value="${dt.getFullYear()}|${dt.getMonth()}"${sel}>${refRotulo(dt.getFullYear(), dt.getMonth())}</option>`;
+    }).join('');
+    const acao = `
+      <select class="cat-sel" id="ref-dest-${d.id}" style="min-width:130px;">
+        <option value="">— não mover —</option>
+        ${opcoes}
+      </select>
+      <button class="cat-rm" style="margin-top:6px;" onclick="moverParaEscolhido('${d.id}')">Mover</button>`;
 
-    // A prova: dias com venda e quantos domingos de cada mês testado teriam venda.
-    // Com isso dá pra conferir o veredito na mão, contra o relatório do Kigi.
-    let prova = '';
-    if(per && per.diasLista){
-      const notas = (per.candidatos || [])
-        .map(c=> c.valido
-          ? `${MESES[c.mes].slice(0,3)}: ${c.vendasEmDomingo}`
-          : `${MESES[c.mes].slice(0,3)}: dia ${Math.max(...per.diasLista)} não existe`)
-        .join(' · ');
-      prova = `<tr class="ref-prova"><td colspan="5">
-        <strong>Dias com venda:</strong> ${per.diasLista.join(', ')}<br>
-        <strong>Domingos com venda em cada mês testado:</strong> ${notas}
-        <span class="ref-prova-nota">— o mês certo é o que tem zero. Se dois meses derem zero, o calendário deles é igual e não dá pra separar só por aqui.</span>
-      </td></tr>`;
-    }
+    const prova = (per && per.diasLista)
+      ? `<tr class="ref-prova"><td colspan="6">
+          <strong>Dias com venda:</strong> ${per.diasLista.join(', ')}<br>
+          <strong>Domingos que teriam venda em cada mês:</strong> ${(per.candidatos||[]).map(c=> c.valido ? `${MESES[c.mes].slice(0,3)}: ${c.vendasEmDomingo}` : `${MESES[c.mes].slice(0,3)}: dia ${Math.max(...per.diasLista)} não existe`).join(' · ')}
+          <span class="ref-prova-nota">— o mês compatível é o que dá zero. Isso é pista, não prova: confira no sistema de vendas antes de mover.</span>
+        </td></tr>`
+      : '';
 
     return `<tr>
-      <td><strong>${refRotulo(o.ano, o.mes)}</strong></td>
-      <td>${escHtml(d.arquivoNome || '—')}<div class="ref-tot">${tam}</div></td>
-      <td>${per && per.dias ? per.dias + ' dias' : '—'}</td>
-      <td>${veredito}</td>
+      <td><strong>${refRotulo(o.ano, o.mes)}</strong><div class="ref-tot">${escHtml(d.arquivoNome || '—')}</div></td>
+      <td class="tnum">${fmtInt(d.pecas || 0)}</td>
+      <td class="tnum">${fmtInt(d.vendas || 0)}</td>
+      <td class="tnum">${fmtBRL(d.valor || 0)}</td>
+      <td>${situacao}${pista === '<span class="ref-dunno">—</span>' ? '' : `<div class="ref-pista-lin">Calendário: ${pista}</div>`}</td>
       <td>${acao}</td>
     </tr>${prova}`;
   }).join('');
 
   let resumo = '';
   if(repetidos){
-    resumo += `<div class="ref-alerta"><strong>${repetidos} ${repetidos===1?'mês tem':'meses têm'} números idênticos aos de outro mês.</strong> Isso quase sempre quer dizer que o <strong>mesmo relatório foi baixado e subido duas vezes</strong> — repare se o nome do arquivo tem "(1)" no fim. Nesse caso não é para mover: um dos dois é cópia e o mês verdadeiro talvez nunca tenha sido processado. Confira no sistema de vendas antes de mexer.</div>`;
-  }
-  if(choques){
-    resumo += `<div class="ref-alerta"><strong>${choques} ${choques===1?'mês aponta':'meses apontam'} para um destino já disputado por outro mês.</strong> Travei esses botões: mover os dois criaria o mesmo mês duas vezes e apagaria um fechamento. Resolva a duplicidade primeiro.</div>`;
-  }
-  if(deslocados && !choques && !repetidos){
-    resumo += `<div class="ref-alerta"><strong>${deslocados} ${deslocados===1?'mês está':'meses estão'} no lugar errado.</strong> Mova <strong>do mais antigo para o mais novo</strong>, um de cada vez — assim o destino sempre está livre quando chega a vez dele.</div>`;
-  }
-  if(!deslocados && !repetidos && !choques){
-    resumo = `<div class="ref-alerta ok">Nenhum problema encontrado.</div>`;
+    resumo += `<div class="ref-alerta"><strong>${repetidos} ${repetidos===1?'mês tem':'meses têm'} itens, vendas e valor idênticos aos de outro mês.</strong> São o mesmo relatório subido duas vezes. Não é caso de mover: confira no sistema de vendas qual mês está faltando e processe o relatório certo.</div>`;
+  } else {
+    resumo += `<div class="ref-alerta ok">Nenhum relatório duplicado: os meses têm números diferentes entre si.</div>`;
   }
 
   corpo.innerHTML = `
     <div class="ref-passo">
       <h3>1. O que a análise encontrou</h3>
-      <p>O arquivo original não fica guardado, mas o fechamento guarda <strong>em que dias houve venda</strong>. A loja não vende em dia que não existe no mês, nem no domingo — esse padrão diz qual é o mês de verdade. Quando o padrão não distingue os meses (fevereiro e março têm o mesmo calendário em ano não bissexto), eu digo que não deu, em vez de chutar.</p>
+      <p><strong>Compare itens, vendas e valor.</strong> Se dois meses tiverem os três iguais, é o mesmo relatório subido duas vezes. Se forem diferentes, são meses diferentes. Esse é o teste que decide — a leitura do calendário, na coluna ao lado, é só uma pista para ajudar a achar o mês, e pode empatar quando dois meses têm o mesmo calendário.</p>
       ${resumo}
-      ${inconclusivos ? `<p style="color:var(--cr3);">${inconclusivos} ${inconclusivos===1?'mês precisa':'meses precisam'} de conferência manual — compare o nome do arquivo com o mês.</p>` : ''}
       <table class="ref-tab">
-        <thead><tr><th>Guardado em</th><th>Arquivo</th><th>Dias c/ venda</th><th>Veredito</th><th></th></tr></thead>
+        <thead><tr><th>Guardado em</th><th class="tnum">Itens</th><th class="tnum">Vendas</th><th class="tnum">Valor</th><th>Situação</th><th>Mover para</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table>
     </div>

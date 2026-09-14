@@ -1237,6 +1237,7 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .ref-prova strong{color:var(--ou2);font-weight:600;}
 .ref-prova-nota{display:block;font-style:italic;margin-top:3px;opacity:.75;}
 .ref-pista{color:#e8c07a;}
+.ref-fonte{font-size:9px;color:var(--cr3);font-style:italic;margin-top:3px;letter-spacing:.3px;}
 /* Lista de Bônus puxada da Central de Metas */
 .bonus-card{
   border:1px solid var(--oud);background:rgba(201,168,76,.05);
@@ -5691,8 +5692,60 @@ function notaCandidato(dias, ano, mes){
   return {ano, mes, valido:true, vendasEmDomingo, domingos};
 }
 
+// Procura uma data DE VERDADE dentro do fechamento salvo — mês e ano, não só
+// o dia. Duas fontes, nesta ordem:
+//   1. refArquivo — o período que o próprio arquivo cobria. Gravado nos
+//      fechamentos processados a partir de setembro/2026.
+//   2. auditoria.possiveisDuplicatas[].amostra.data — a data crua da planilha,
+//      guardada quando o relatório tinha vendas repetidas. Nem todo mês tem.
+// Achando isso, não precisa de análise de calendário nenhuma: é o dado.
+function dataRealDoFechamento(dadosFech){
+  if(!dadosFech) return null;
+
+  const ref = dadosFech.refArquivo;
+  if(ref && Number.isInteger(ref.ano) && Number.isInteger(ref.mes)){
+    return {ano: ref.ano, mes: ref.mes, fonte: 'data lida do arquivo ao processar'};
+  }
+
+  const dups = (dadosFech.auditoria && dadosFech.auditoria.possiveisDuplicatas) || [];
+  const contagem = {};
+  dups.forEach(d=>{
+    const bruto = d && d.amostra && d.amostra.data;
+    if(!bruto) return;
+    const dt = lerDataCelula(bruto);
+    if(!dt || isNaN(dt)) return;
+    const k = `${dt.getFullYear()}|${dt.getMonth()}`;
+    contagem[k] = (contagem[k] || 0) + 1;
+  });
+  const chaves = Object.keys(contagem);
+  if(chaves.length === 1){
+    const [ano, mes] = chaves[0].split('|').map(Number);
+    return {ano, mes, fonte: 'data de venda guardada na auditoria'};
+  }
+  return null;   // sem data confiável — cai pra análise de calendário
+}
+
 // Compara o mês em que está guardado com o anterior e o seguinte
 function periciarMes(dadosFech, anoRot, mesRot){
+  // Se o fechamento guarda a data de verdade, acabou: usa ela.
+  const real = dataRealDoFechamento(dadosFech);
+  if(real){
+    return {
+      conclusivo: true,
+      porData: true,
+      fonte: real.fonte,
+      empatados: [],
+      dias: diasComVenda(dadosFech).size,
+      melhor: {ano: real.ano, mes: real.mes, vendasEmDomingo: 0, domingos: 0, valido: true},
+      margem: 99,
+      bateComRotulo: real.ano === anoRot && real.mes === mesRot,
+      motivo: ''
+    };
+  }
+  return periciarPorCalendario(dadosFech, anoRot, mesRot);
+}
+
+function periciarPorCalendario(dadosFech, anoRot, mesRot){
   const dias = diasComVenda(dadosFech);
   if(dias.size < 5){
     return {conclusivo:false, motivo:'poucos dias de venda registrados', dias:dias.size};
@@ -5932,11 +5985,21 @@ function renderModalRef(){
     // ── PISTA (não é veredito): o calendário dos dias com venda ──
     let pista = '<span class="ref-dunno">—</span>';
     let sugerido = '';
-    if(per && per.conclusivo){
+    if(per && per.porData){
+      // Data de verdade tirada do relatório: isso não é pista, é o dado
+      comPista++;
+      sugerido = refMontaId(per.melhor.ano, per.melhor.mes);
+      const alvo = refRotulo(per.melhor.ano, per.melhor.mes);
+      pista = per.bateComRotulo
+        ? `<span class="ref-ok2">✓ o relatório é de ${alvo}, e está no lugar certo</span>`
+        : `<span class="ref-mal">✗ o relatório é de ${alvo}</span>`;
+      pista += `<div class="ref-fonte">${escHtml(per.fonte)}</div>`;
+    } else if(per && per.conclusivo){
       comPista++;
       sugerido = refMontaId(per.melhor.ano, per.melhor.mes);
       const igual = per.bateComRotulo;
-      pista = `<span class="${igual ? 'ref-ok2' : 'ref-pista'}">${igual ? 'compatível com o próprio mês' : 'parece ser ' + refRotulo(per.melhor.ano, per.melhor.mes)}</span>`;
+      pista = `<span class="${igual ? 'ref-ok2' : 'ref-pista'}">${igual ? 'compatível com o próprio mês' : 'parece ser ' + refRotulo(per.melhor.ano, per.melhor.mes)}</span>
+        <div class="ref-fonte">sem data no relatório — deduzido pelo calendário dos dias com venda</div>`;
     } else if(per){
       pista = `<span class="ref-dunno">não deu pra dizer<br><span style="font-size:10px;">${escHtml(per.motivo)}</span></span>`;
     }
@@ -5955,7 +6018,7 @@ function renderModalRef(){
       </select>
       <button class="cat-rm" style="margin-top:6px;" onclick="moverParaEscolhido('${d.id}')">Mover</button>`;
 
-    const prova = (per && per.diasLista)
+    const prova = (per && !per.porData && per.diasLista)
       ? `<tr class="ref-prova"><td colspan="6">
           <strong>Dias com venda:</strong> ${per.diasLista.join(', ')}<br>
           <strong>Domingos que teriam venda em cada mês:</strong> ${(per.candidatos||[]).map(c=> c.valido ? `${MESES[c.mes].slice(0,3)}: ${c.vendasEmDomingo}` : `${MESES[c.mes].slice(0,3)}: dia ${Math.max(...per.diasLista)} não existe`).join(' · ')}
@@ -5968,7 +6031,7 @@ function renderModalRef(){
       <td class="tnum">${fmtInt(d.pecas || 0)}</td>
       <td class="tnum">${fmtInt(d.vendas || 0)}</td>
       <td class="tnum">${fmtBRL(d.valor || 0)}</td>
-      <td>${situacao}${pista === '<span class="ref-dunno">—</span>' ? '' : `<div class="ref-pista-lin">Calendário: ${pista}</div>`}</td>
+      <td>${situacao}${pista === '<span class="ref-dunno">—</span>' ? '' : `<div class="ref-pista-lin">${pista}</div>`}</td>
       <td>${acao}</td>
     </tr>${prova}`;
   }).join('');
@@ -5983,7 +6046,9 @@ function renderModalRef(){
   corpo.innerHTML = `
     <div class="ref-passo">
       <h3>1. O que a análise encontrou</h3>
-      <p><strong>Compare itens, vendas e valor.</strong> Se dois meses tiverem os três iguais, é o mesmo relatório subido duas vezes. Se forem diferentes, são meses diferentes. Esse é o teste que decide — a leitura do calendário, na coluna ao lado, é só uma pista para ajudar a achar o mês, e pode empatar quando dois meses têm o mesmo calendário.</p>
+      <p><strong>Quando o relatório guardou a data, é ela que manda</strong> — a coluna Situação diz de que mês ele é e de onde veio essa data. Só quando não existe data guardada é que entra a dedução pelo calendário, e aí fica escrito que é dedução.<br>
+      <strong>Itens, vendas e valor</strong> servem para achar relatório repetido: os três iguais em dois meses = mesmo arquivo subido duas vezes.</p>
+      <p style="color:var(--ou2);">Fechamentos antigos podem não ter data guardada. Nesse caso, o caminho mais curto é <strong>baixar o relatório de novo no sistema de vendas e subir outra vez</strong>: o painel agora lê o mês do próprio arquivo e grava no lugar certo sozinho.</p>
       ${resumo}
       <table class="ref-tab">
         <thead><tr><th>Guardado em</th><th class="tnum">Itens</th><th class="tnum">Vendas</th><th class="tnum">Valor</th><th>Situação</th><th>Mover para</th></tr></thead>

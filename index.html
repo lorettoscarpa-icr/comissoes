@@ -1221,6 +1221,18 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .nc-moeda{display:flex;align-items:center;gap:8px;}
 .nc-moeda span{font-family:'Cormorant Garamond',serif;font-size:16px;color:var(--ou2);}
 .nc-dica{font-size:11px;color:var(--cr3);margin-top:7px;line-height:1.5;}
+/* Conferência de mês de referência */
+.ref-passo{border:1px solid var(--oud2);background:rgba(0,0,0,.15);padding:16px 18px;margin-bottom:14px;}
+.ref-passo h3{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--ou2);margin:0 0 8px;font-weight:600;}
+.ref-passo p{font-size:12px;color:var(--cr3);line-height:1.6;margin:0 0 12px;}
+.ref-tab{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;}
+.ref-tab th{text-align:left;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--cr3);padding:6px 8px;border-bottom:1px solid var(--oud2);font-weight:600;}
+.ref-tab td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--cr2);vertical-align:middle;}
+.ref-ok2{color:#a8d4a8;}
+.ref-mal{color:#e0b0ac;font-weight:600;}
+.ref-dunno{color:var(--cr3);font-style:italic;}
+.ref-alerta{border-left:3px solid #c98b8b;background:rgba(192,80,74,.1);padding:12px 14px;font-size:12px;color:#e0b0ac;line-height:1.6;margin-bottom:12px;}
+.ref-alerta.ok{border-left-color:#6dbf6d;background:rgba(54,79,36,.35);color:#a8d4a8;}
 /* Corretor de mês de referência */
 .ref-passo{border:1px solid var(--oud2);background:rgba(0,0,0,.15);padding:16px 18px;margin-bottom:14px;}
 .ref-passo h3{
@@ -1979,6 +1991,9 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
     <div class="linha"></div>
     <p>Linha do Tempo de Fechamentos</p>
   </div>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:18px;">
+    <button class="bup" onclick="abrirModalRef()">⁉ Conferir mês de referência</button>
+  </div>
   <div id="hist-content"></div>
 </main>
 
@@ -2061,6 +2076,17 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
     <h2>Mês de Referência</h2>
     <div class="sub">Conferir e corrigir em que mês cada fechamento está guardado</div>
     <div id="ref-corpo"><!-- preenchido via JS --></div>
+    <div class="modal-acoes">
+      <button class="bup" onclick="fecharModalRef()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-ref" onclick="if(event.target===this)fecharModalRef()">
+  <div class="modal" style="max-width:860px;">
+    <h2>Conferir Mês de Referência</h2>
+    <div class="sub">Descobre em que mês cada fechamento realmente é</div>
+    <div id="ref-corpo"></div>
     <div class="modal-acoes">
       <button class="bup" onclick="fecharModalRef()">Fechar</button>
     </div>
@@ -5499,6 +5525,287 @@ function secAud(id, titulo, count, tipo, body){
         <div class="aud-sec-toggle">▾</div>
       </div>
       <div class="aud-sec-body">${body}</div>
+    </div>`;
+}
+
+// ═════════════ PERÍCIA: EM QUE MÊS ESTE FECHAMENTO REALMENTE É? ═════════════
+// O arquivo original não fica guardado, mas o fechamento guarda em quais DIAS
+// houve venda (_porDia). Isso é digital do mês: a loja não vende em dia que não
+// existe (31 em mês de 30), e não vende no domingo, quando está fechada.
+// Comparando o padrão de dias com os meses candidatos, dá pra dizer qual é.
+
+const COLECOES_MENSAIS = [
+  {id:'fechamentos',   rot:'Fechamento'},
+  {id:'metas',         rot:'Metas'},
+  {id:'atingimentos',  rot:'Atingimentos'},
+  {id:'horasExtras',   rot:'Horas extras'},
+  {id:'equipeFixa',    rot:'Equipe fixa'},
+  {id:'adiantamentos', rot:'Adiantamentos'},
+  {id:'pagamentos',    rot:'Folha realizada'}
+];
+
+function refParseId(id){
+  const p = String(id).split('-');
+  const ano = parseInt(p[0],10), mes = parseInt(p[1],10) - 1;
+  if(isNaN(ano) || isNaN(mes) || mes < 0 || mes > 11) return null;
+  return {ano, mes};
+}
+function refMontaId(ano, mes){
+  const d = new Date(ano, mes, 1);
+  return `${d.getFullYear()}-${d.getMonth()+1}`;
+}
+function refRotulo(ano, mes){
+  const d = new Date(ano, mes, 1);
+  return `${MESES[d.getMonth()]} ${d.getFullYear()}`;
+}
+function diasNoMes(ano, mes){ return new Date(ano, mes + 1, 0).getDate(); }
+
+// Dias do mês em que houve venda, somando todas as vendedoras
+function diasComVenda(dadosFech){
+  const dias = new Set();
+  const result = dadosFech && dadosFech.result;
+  if(!result) return dias;
+  Object.keys(result).forEach(v=>{
+    const pd = result[v] && result[v]._porDia;
+    if(!pd) return;
+    Object.keys(pd).forEach(d=>{
+      const dia = parseInt(d,10);
+      if(!dia) return;
+      // só conta se teve peça de fato naquele dia
+      const total = Object.values(pd[d] || {}).reduce((a,b)=> a + (Number(b)||0), 0);
+      if(total > 0) dias.add(dia);
+    });
+  });
+  return dias;
+}
+
+// Nota de um mês candidato: quanto o padrão de dias combina com ele
+function notaCandidato(dias, ano, mes){
+  const arr = [...dias];
+  if(!arr.length) return null;
+  const nDias = diasNoMes(ano, mes);
+  if(Math.max(...arr) > nDias) return {ano, mes, valido:false, vendasEmDomingo:0, domingos:0};
+
+  let vendasEmDomingo = 0, domingos = 0;
+  for(let d = 1; d <= nDias; d++){
+    if(new Date(ano, mes, d).getDay() !== 0) continue;   // 0 = domingo
+    domingos++;
+    if(dias.has(d)) vendasEmDomingo++;
+  }
+  return {ano, mes, valido:true, vendasEmDomingo, domingos};
+}
+
+// Compara o mês em que está guardado com o anterior e o seguinte
+function periciarMes(dadosFech, anoRot, mesRot){
+  const dias = diasComVenda(dadosFech);
+  if(dias.size < 5){
+    return {conclusivo:false, motivo:'poucos dias de venda registrados', dias:dias.size};
+  }
+
+  const candidatos = [-1, 0, 1]
+    .map(delta=>{
+      const d = new Date(anoRot, mesRot + delta, 1);
+      return notaCandidato(dias, d.getFullYear(), d.getMonth());
+    })
+    .filter(Boolean);
+
+  const validos = candidatos.filter(c=>c.valido);
+  if(!validos.length) return {conclusivo:false, motivo:'nenhum mês compatível', dias:dias.size};
+
+  validos.sort((a,b)=> a.vendasEmDomingo - b.vendasEmDomingo);
+  const melhor = validos[0];
+  const segundo = validos[1];
+
+  // Só afirmo quando o melhor candidato é claramente melhor que o segundo.
+  // Tolero 1 domingo com venda (loja pode ter aberto em data especial),
+  // mas não mais que isso.
+  const margem = segundo ? (segundo.vendasEmDomingo - melhor.vendasEmDomingo) : 99;
+  const conclusivo = melhor.vendasEmDomingo <= 1 && margem >= 2;
+
+  return {
+    conclusivo,
+    dias: dias.size,
+    melhor,
+    margem,
+    eliminadosPorDia: candidatos.filter(c=>!c.valido).map(c=>refRotulo(c.ano,c.mes)),
+    bateComRotulo: melhor.ano === anoRot && melhor.mes === mesRot,
+    motivo: conclusivo ? '' : 'padrão de domingos não distingue os meses (a loja abre domingo?)'
+  };
+}
+
+// Levanta todos os meses guardados e periciar cada um
+function refDiagnostico(){
+  const meses = {};
+  COLECOES_MENSAIS.forEach(col=>{
+    fsListar(col.id).forEach(id=>{
+      if(!refParseId(id)) return;
+      const dados = fsLer(col.id, id);
+      if(!dados || !Object.keys(dados).length) return;
+      if(!meses[id]) meses[id] = {colecoes:[], arquivoNome:'', salvoEm:'', pericia:null};
+      meses[id].colecoes.push(col.rot);
+      if(col.id === 'fechamentos'){
+        meses[id].arquivoNome = dados.arquivoNome || '';
+        meses[id].salvoEm = dados.salvoEm || '';
+        meses[id].refArquivo = dados.refArquivo || null;
+        const p = refParseId(id);
+        meses[id].pericia = periciarMes(dados, p.ano, p.mes);
+      }
+    });
+  });
+  return Object.keys(meses).sort((a,b)=>{
+    const pa = refParseId(a), pb = refParseId(b);
+    return pa.ano - pb.ano || pa.mes - pb.mes;
+  }).map(id => ({id, ...meses[id]}));
+}
+
+// Backup de tudo, antes de qualquer mudança
+function refBaixarBackup(){
+  const dump = {geradoEm:new Date().toISOString(), colecoes:{}};
+  COLECOES_MENSAIS.forEach(col=>{
+    dump.colecoes[col.id] = {};
+    fsListar(col.id).forEach(id=>{
+      const d = fsLer(col.id, id);
+      if(d) dump.colecoes[col.id][id] = d;
+    });
+  });
+  const blob = new Blob([JSON.stringify(dump, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `loretto-backup-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  REF_BACKUP_FEITO = true;
+  toast('Backup baixado — guarde esse arquivo', 'ok');
+  renderModalRef();
+}
+let REF_BACKUP_FEITO = false;
+
+// Reencaixa UM mês no lugar certo. Um de cada vez, com confirmação própria:
+// é dinheiro de gente, não vale a pena fazer em lote no escuro.
+function reencaixarMes(idOrigem, anoDestino, mesDestino){
+  const origem = refParseId(idOrigem);
+  if(!origem) return;
+  const idDestino = refMontaId(anoDestino, mesDestino);
+  if(idDestino === idOrigem){ toast('Já está nesse mês', 'am'); return; }
+
+  if(!REF_BACKUP_FEITO){
+    toast('Baixe o backup antes (passo 2)', 'er');
+    return;
+  }
+
+  // O destino não pode ter nada — nunca sobrescrever fechamento existente
+  const ocupado = COLECOES_MENSAIS
+    .filter(col=>{ const d = fsLer(col.id, idDestino); return d && Object.keys(d).length; })
+    .map(col=>col.rot);
+  if(ocupado.length){
+    alert(`Não mexi em nada.\n\n${refRotulo(anoDestino, mesDestino)} já tem dados guardados: ${ocupado.join(', ')}.\n\nMova primeiro esse mês para o lugar dele (comece sempre pelo mês mais antigo da lista).`);
+    return;
+  }
+
+  const oQueVai = COLECOES_MENSAIS
+    .filter(col=>{ const d = fsLer(col.id, idOrigem); return d && Object.keys(d).length; });
+  if(!oQueVai.length){ toast('Não há nada para mover', 'am'); return; }
+
+  const ok = confirm(
+    `Mover de ${refRotulo(origem.ano, origem.mes).toUpperCase()} para ${refRotulo(anoDestino, mesDestino).toUpperCase()}?\n\n` +
+    `Vai junto: ${oQueVai.map(c=>c.rot).join(', ')}.\n\n` +
+    `Os números não mudam — só mudam de mês. Dá pra voltar com o backup.`
+  );
+  if(!ok) return;
+
+  // Copia tudo primeiro; só solta a origem depois que a cópia está no lugar
+  const copiados = [];
+  oQueVai.forEach(col=>{
+    const dados = fsLer(col.id, idOrigem);
+    fsSalvar(col.id, idDestino, dados, {silencioso:true});
+    copiados.push(col.id);
+  });
+  const faltou = copiados.filter(c=>{
+    const d = fsLer(c, idDestino);
+    return !d || !Object.keys(d).length;
+  });
+  if(faltou.length){
+    alert(`A cópia falhou em: ${faltou.join(', ')}.\nNão apaguei nada — o mês de origem continua intacto.`);
+    return;
+  }
+  copiados.forEach(colId => fsApagar(colId, idOrigem));
+
+  toast(`Movido para ${refRotulo(anoDestino, mesDestino)}`, 'ok');
+  renderModalRef();
+  atualizarMesUI();
+  carregarMesAtual();
+}
+
+function abrirModalRef(){
+  REF_BACKUP_FEITO = false;
+  renderModalRef();
+  document.getElementById('modal-ref').classList.add('open');
+}
+function fecharModalRef(){
+  document.getElementById('modal-ref').classList.remove('open');
+}
+
+function renderModalRef(){
+  const corpo = document.getElementById('ref-corpo');
+  if(!corpo) return;
+  const diag = refDiagnostico();
+
+  if(!diag.length){
+    corpo.innerHTML = '<div class="ref-passo"><p>Nenhum mês guardado ainda — não há o que conferir.</p></div>';
+    return;
+  }
+
+  let deslocados = 0, inconclusivos = 0;
+  const linhas = diag.map(d=>{
+    const o = refParseId(d.id);
+    const per = d.pericia;
+    let veredito, acao = '—';
+
+    if(!per){
+      veredito = '<span class="ref-dunno">sem fechamento de vendas</span>';
+    } else if(!per.conclusivo){
+      inconclusivos++;
+      veredito = `<span class="ref-dunno">não deu pra afirmar<br><span style="font-size:10px;">${escHtml(per.motivo)}</span></span>`;
+    } else if(per.bateComRotulo){
+      veredito = `<span class="ref-ok2">✓ confere — é ${refRotulo(per.melhor.ano, per.melhor.mes)}</span>`;
+    } else {
+      deslocados++;
+      const alvo = refRotulo(per.melhor.ano, per.melhor.mes);
+      veredito = `<span class="ref-mal">✗ na verdade é ${alvo}</span>`;
+      acao = `<button class="cat-rm" onclick="reencaixarMes('${d.id}', ${per.melhor.ano}, ${per.melhor.mes})">Mover para ${alvo}</button>`;
+    }
+
+    return `<tr>
+      <td><strong>${refRotulo(o.ano, o.mes)}</strong></td>
+      <td>${escHtml(d.arquivoNome || '—')}</td>
+      <td>${per && per.dias ? per.dias + ' dias' : '—'}</td>
+      <td>${veredito}</td>
+      <td>${acao}</td>
+    </tr>`;
+  }).join('');
+
+  const resumo = deslocados
+    ? `<div class="ref-alerta"><strong>${deslocados} ${deslocados===1?'mês está':'meses estão'} no lugar errado.</strong> Mova <strong>do mais antigo para o mais novo</strong>, um de cada vez — assim o mês de destino sempre está livre quando chega a vez dele.</div>`
+    : `<div class="ref-alerta ok">Nenhum mês deslocado foi encontrado.</div>`;
+
+  corpo.innerHTML = `
+    <div class="ref-passo">
+      <h3>1. O que a análise encontrou</h3>
+      <p>O arquivo original não fica guardado, mas o fechamento guarda <strong>em que dias houve venda</strong>. A loja não vende em dia que não existe no mês, nem no domingo — esse padrão diz qual é o mês de verdade. Quando o padrão não distingue os meses (fevereiro e março têm o mesmo calendário em ano não bissexto), eu digo que não deu, em vez de chutar.</p>
+      ${resumo}
+      ${inconclusivos ? `<p style="color:var(--cr3);">${inconclusivos} ${inconclusivos===1?'mês precisa':'meses precisam'} de conferência manual — compare o nome do arquivo com o mês.</p>` : ''}
+      <table class="ref-tab">
+        <thead><tr><th>Guardado em</th><th>Arquivo</th><th>Dias c/ venda</th><th>Veredito</th><th></th></tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div>
+
+    <div class="ref-passo">
+      <h3>2. Backup — obrigatório antes de mover</h3>
+      <p>Baixa tudo que está guardado hoje num arquivo. É com ele que a gente volta atrás se algo sair errado.</p>
+      <button class="bup" onclick="refBaixarBackup()">↓ Baixar backup completo</button>
+      ${REF_BACKUP_FEITO ? '<div class="ref-alerta ok" style="margin:12px 0 0;">✓ Backup baixado. Agora os botões de mover estão liberados.</div>' : '<div class="ref-alerta" style="margin:12px 0 0;">Os botões de mover ficam bloqueados até você baixar o backup.</div>'}
     </div>`;
 }
 

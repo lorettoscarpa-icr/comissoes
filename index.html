@@ -4756,6 +4756,27 @@ function lerBonusApurado(){
   return fsLer('bonusApurado', id);
 }
 
+// Busca o bônus do mês direto no banco, sem passar pelo cache carregado no
+// login. Chamada quando a Larissa processa o fechamento: nesse momento o mês
+// já virou, a lista de bônus já fechou, e é isso que ela precisa ver agora.
+async function atualizarBonusDoMes(){
+  if(!window._db || !window._fsFns) return false;
+  const id = `${DATA_ATUAL.getFullYear()}_${String(DATA_ATUAL.getMonth()+1).padStart(2,'0')}`;
+  try{
+    const { getDoc, doc } = window._fsFns;
+    const snap = await getDoc(doc(window._db, 'ls_bonus_apurado', id));
+    const dados = snap && snap.exists ? snap.data() : (snap && snap.exists === undefined && snap.data ? snap.data() : null);
+    if(!dados) return false;
+    FS_CACHE.bonusApurado[id] = dados;
+    try{ localStorage.setItem(`loretto-bonusap-${id}`, JSON.stringify(dados)); }catch(e){}
+    renderPagamentos();
+    return true;
+  }catch(e){
+    console.warn('Não consegui buscar a lista de bônus agora:', e);
+    return false;
+  }
+}
+
 function blocoBonusHTML(){
   const b = lerBonusApurado();
   const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
@@ -5074,6 +5095,7 @@ function salvarFechamentoConferindoMes(){
   if(!ref){
     log('⚠ O arquivo não tem data legível — não deu pra conferir o mês de referência', 'am');
     salvarFechamentoMes();
+    puxarBonusAposFechamento();
     return;
   }
 
@@ -5084,6 +5106,7 @@ function salvarFechamentoConferindoMes(){
   if(mesmoMes){
     log(`✓ Mês de referência confere: as vendas são de ${rotuloRef}`);
     salvarFechamentoMes();
+    puxarBonusAposFechamento();
     return;
   }
 
@@ -5114,6 +5137,16 @@ function salvarFechamentoConferindoMes(){
     log(`Fechamento gravado em ${rotuloSel} por escolha sua`, 'am');
     toast(`Gravado em ${rotuloSel}`, 'am');
   }
+  puxarBonusAposFechamento();
+}
+
+// Depois do fechamento, traz a lista de bônus daquele mês pra Folha Realizada
+function puxarBonusAposFechamento(){
+  atualizarBonusDoMes().then(achou=>{
+    const mes = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
+    if(achou) log(`✓ Lista de bônus de ${mes} carregada — veja em Folha Realizada`);
+    else log(`Ainda não há lista de bônus para ${mes} na Central de Metas`, 'am');
+  });
 }
 
 function salvarFechamentoMes(){

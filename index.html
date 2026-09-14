@@ -1263,6 +1263,8 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
   padding:10px 13px;font-size:11px;color:var(--ou2);line-height:1.6;margin-bottom:12px;
 }
 .bonus-vazio{text-align:center;padding:26px 16px;color:var(--cr3);font-size:12px;line-height:1.8;}
+.fx-origem{color:#a8d4a8;font-size:8px;letter-spacing:1px;}
+.fx-origem-nota{font-size:9px;color:var(--cr3);font-style:italic;margin-top:4px;}
 .ref-pista-lin{font-size:10px;color:var(--cr3);margin-top:5px;}
 .ref-alerta{border-left:3px solid #c98b8b;background:rgba(192,80,74,.1);padding:12px 14px;font-size:12px;color:#e0b0ac;line-height:1.6;margin-bottom:12px;}
 .ref-alerta.ok{border-left-color:#6dbf6d;background:rgba(54,79,36,.35);color:#a8d4a8;}
@@ -4353,6 +4355,29 @@ function idFixa(){
 function lerEquipeFixa(){
   return fsLer('equipeFixa', idFixa()) || {};
 }
+// Yuri, Edson e Gustavo ganham fixo — o valor já vem no recibo da
+// contabilidade. Em vez de digitar de novo, puxa da folha realizada do mês.
+// O nome no recibo é completo ("Yuri Alves da Silva"), então casa pelo começo.
+function salarioNaFolha(nome){
+  const folha = lerPagamentos();
+  const alvo = normalizar(nome);
+  if(!alvo) return null;
+
+  const chave = Object.keys(folha).find(k=>{
+    const reg = folha[k] || {};
+    const cand = [k, reg.nomeCompleto].filter(Boolean).map(normalizar);
+    return cand.some(c => c === alvo || c.startsWith(alvo + ' '));
+  });
+  if(!chave) return null;
+
+  const reg = folha[chave] || {};
+  const base = Number(reg.salarioBase) || 0;
+  if(base > 0) return {valor: base, campo: 'salário base do recibo'};
+  const venc = Number(reg.vencimentos) || 0;
+  if(venc > 0) return {valor: venc, campo: 'total de vencimentos do recibo'};
+  return null;
+}
+
 function lerFuncFixo(nome){
   const r = lerEquipeFixa()[nome] || {};
   return {
@@ -4437,7 +4462,18 @@ function renderEquipeFixa(){
   grid.innerHTML = '';
 
   EQUIPE_FIXA.forEach(e => {
-    const f = lerFuncFixo(e.nome);
+    let f = lerFuncFixo(e.nome);
+
+    // Campo vazio e folha importada: puxa de lá e grava, pra entrar no total.
+    // Se já tem valor digitado, não encosta — quem digitou mandou mais.
+    let puxado = null;
+    if(!(f.salario > 0)){
+      puxado = salarioNaFolha(e.nome);
+      if(puxado){
+        salvarFuncFixo(e.nome, 'salario', puxado.valor);
+        f = lerFuncFixo(e.nome);
+      }
+    }
     const adiant = lerAdiantamento(e.nome);
     const card = document.createElement('div');
     card.className = 'vend-card';
@@ -4455,7 +4491,7 @@ function renderEquipeFixa(){
       </div>
       <div class="fx-fields">
         <div class="fx-field">
-          <div class="fx-flbl">Salário Fixo</div>
+          <div class="fx-flbl">Salário Fixo${puxado ? ' <span class="fx-origem">· da folha</span>' : ''}</div>
           <div class="fx-input-wrap">
             <span class="fx-prefixo">R$</span>
             <input type="text" class="fx-input" inputmode="decimal"
@@ -4463,6 +4499,7 @@ function renderEquipeFixa(){
                    placeholder="0,00"
                    oninput="atualizarFuncFixo('${e.nome}', 'salario', this.value)">
           </div>
+          ${puxado ? `<div class="fx-origem-nota">puxado do ${puxado.campo}</div>` : ''}
         </div>
         <div class="fx-field">
           <div class="fx-flbl">Adiantamento <span class="fx-nota">(Larissa · desconta · em branco = não houve)</span></div>
@@ -4729,13 +4766,19 @@ function blocoBonusHTML(){
         <div><div class="bonus-tit">Lista de Bônus — ${mesAno}</div>
         <div class="bonus-sub">Quem ganhou e quanto pagar</div></div>
       </div>
-      <div class="bonus-vazio">Nenhuma lista de bônus publicada para ${mesAno}.<br>
-        Ela aparece aqui depois que alguém gera a <strong>Lista de Bônus</strong> na Central de Metas.</div>
+      <div class="bonus-vazio">Nenhuma lista de bônus para ${mesAno} ainda.<br>
+        Ela chega sozinha da Central de Metas assim que as vendedoras lançarem vendas no mês.</div>
     </div>`;
   }
 
   const premiadas = b.premiadas || [];
   const emitido = b.emitidoEm ? new Date(b.emitidoEm).toLocaleDateString('pt-BR') : '';
+
+  // Se o mês já acabou, o número é o fechado — não importa se a última
+  // publicação saiu com o mês ainda aberto.
+  const fimDoMes = new Date(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth() + 1, 0, 23, 59, 59);
+  const mesJaFechou = new Date() > fimDoMes;
+  const ehPrevia = !mesJaFechou;
 
   const linhas = premiadas.length
     ? premiadas.map(r=>`
@@ -4748,7 +4791,11 @@ function blocoBonusHTML(){
     : `<tr><td colspan="3" style="text-align:center;color:var(--cr3);font-style:italic;">Nenhum bônus a pagar neste mês.</td></tr>`;
 
   const avisos = [];
-  if(b.emAndamento) avisos.push('<div class="bonus-aviso"><strong>Mês ainda em andamento quando esta lista foi gerada.</strong> Os valores são prévia e podem ter mudado — gere de novo na Central de Metas antes de pagar.</div>');
+  if(ehPrevia){
+    avisos.push('<div class="bonus-aviso"><strong>Mês ainda em andamento — isto é uma prévia.</strong> O número se atualiza sozinho conforme as vendedoras lançam vendas, e só vira definitivo depois do último dia do mês. Não pague por aqui ainda.</div>');
+  } else if(b.emAndamento){
+    avisos.push(`<div class="bonus-aviso">O mês já fechou. Esta lista foi atualizada pela última vez em <strong>${emitido}</strong>, antes do fim do mês — se alguma vendedora lançou venda depois disso, basta abrir a Central de Metas em ${mesAno} para o número se atualizar aqui.</div>`);
+  }
   (b.empates || []).forEach(e=>{
     avisos.push(`<div class="bonus-aviso">Empate em <strong>${escHtml(e.nome)}</strong>: ${(e.quem||[]).map(escHtml).join(' e ')} — ${fmtBRL(e.valor)} dividido em ${fmtBRL(e.cota)} para cada.</div>`);
   });
@@ -4757,7 +4804,7 @@ function blocoBonusHTML(){
     <div class="bonus-head">
       <div>
         <div class="bonus-tit">Lista de Bônus — ${mesAno}</div>
-        <div class="bonus-sub">Referência ${mesAno}${emitido ? ` · gerada em ${emitido}` : ''} · vem da Central de Metas</div>
+        <div class="bonus-sub">Referência ${mesAno} · ${ehPrevia ? 'prévia' : 'mês fechado'}${emitido ? ` · atualizada em ${emitido}` : ''}</div>
       </div>
       <div class="bonus-total">${fmtBRL(b.total || 0)}</div>
     </div>

@@ -4809,6 +4809,42 @@ async function atualizarBonusDoMes(){
   }
 }
 
+// Rebusca a lista de bônus de TODOS os meses na Central de Metas.
+// Serve depois de reencaixar meses: o que está em memória pode ser de antes.
+async function puxarTodosOsBonus(){
+  if(!window._db || !window._fsFns){
+    toast('Sem conexão com a nuvem agora', 'er');
+    return;
+  }
+  const btn = document.getElementById('btn-puxar-bonus');
+  if(btn){ btn.disabled = true; btn.textContent = 'Puxando...'; }
+  try{
+    const { collection, getDocs } = window._fsFns;
+    const snap = await getDocs(collection(window._db, 'ls_bonus_apurado'));
+    const achados = {};
+    snap.forEach(d => { achados[d.id] = d.data(); });
+
+    FS_CACHE.bonusApurado = achados;
+    Object.keys(achados).forEach(id=>{
+      try{ localStorage.setItem(`loretto-bonusap-${id}`, JSON.stringify(achados[id])); }catch(e){}
+    });
+
+    const n = Object.keys(achados).length;
+    const meses = Object.keys(achados).sort().map(id=>{
+      const [a, m] = id.split('_').map(Number);
+      return MESES[m-1] ? `${MESES[m-1]}/${a}` : id;
+    });
+    renderPagamentos();
+    toast(n ? `${n} ${n===1?'mês atualizado':'meses atualizados'}: ${meses.join(', ')}`
+            : 'A Central de Metas ainda não publicou nenhuma lista', n ? 'ok' : 'am');
+  }catch(e){
+    console.error('Falha ao puxar as listas de bônus:', e);
+    toast('Não consegui puxar as listas agora', 'er');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '↻ Puxar lista de bônus'; }
+  }
+}
+
 // A lista de bônus entra DENTRO do card de cada vendedora na Folha Realizada,
 // usando as mesmas classes do resto do card (pag-sec-tit, pag-row, pag-sub) —
 // mesma fonte, mesmo espaçamento, mesma cara.
@@ -4843,8 +4879,20 @@ function blocoBonusNoCard(nome){
 
 // Total de bônus do mês, ao lado do total líquido pago
 function resumoBonusHTML(){
+  const botao = `<button class="bup" id="btn-puxar-bonus" style="margin-top:9px;padding:6px 13px;font-size:9px;letter-spacing:1.5px;" onclick="puxarTodosOsBonus()">↻ Puxar lista de bônus</button>`;
   const b = lerBonusApurado();
-  if(!b) return '';
+  const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
+
+  // Sem lista no mês: só o botão, pra dar como puxar da Central de Metas
+  if(!b){
+    return `
+      <div style="text-align:right;">
+        <div class="lbl">Bônus de Meta — Caju</div>
+        <div class="val" style="color:var(--cr3);font-size:20px;">sem lista</div>
+        <div class="sub">a Central de Metas ainda não publicou ${mesAno}</div>
+        ${botao}
+      </div>`;
+  }
   const premiadas = (b.premiadas || []).filter(r=>r.total > 0);
   const fimDoMes = new Date(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth() + 1, 0, 23, 59, 59);
   const ehPrevia = new Date() <= fimDoMes;
@@ -4854,6 +4902,7 @@ function resumoBonusHTML(){
         <div class="lbl">Bônus de Meta — Caju</div>
         <div class="val" style="color:#d4b45a;">${fmtBRL(b.total || 0)}</div>
         <div class="sub">${premiadas.length} ${premiadas.length===1?'vendedora':'vendedoras'} · ${ehPrevia ? 'prévia do mês em andamento' : 'mês fechado'}${emitido ? ` · ${emitido}` : ''}</div>
+        ${botao}
       </div>`;
 }
 
@@ -4879,7 +4928,20 @@ function renderPagamentos(){
   });
   const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
   if(!nomes.length){
-    cont.innerHTML = `<div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
+    // Mesmo sem recibo importado, o bônus do mês (e o botão de puxar) aparecem:
+    // são informações independentes, e é aqui que se puxa a lista dos meses
+    // que acabaram de ser reencaixados.
+    cont.innerHTML = `
+      <div class="fx-resumo">
+        <div>
+          <div class="lbl">Folha Realizada — ${mesAno}</div>
+          <div class="val" style="color:var(--cr3);font-size:20px;">sem recibos</div>
+          <div class="sub">importe o PDF da contabilidade para registrar o que foi pago</div>
+        </div>
+        ${resumoBonusHTML()}
+      </div>
+      ${avisoBonusHTML()}
+      <div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
     return;
   }
   let totV=0,totD=0,totL=0;

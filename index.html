@@ -4721,6 +4721,10 @@ async function importarRecibosPDF(file){
     const rotulo = `${MESES[destino.mes]} ${destino.ano}`;
     body.innerHTML = `<div style="font-size:12px;color:#6dbf6d;padding:4px 0;">✓ ${regs.length} recibos lidos e gravados em <strong>${rotulo}</strong>: ${Object.keys(obj).join(', ')}</div>`;
     renderPagamentos();
+    // A folha acabou de chegar: é agora que o salário fixo do Yuri, Edson e
+    // Gustavo pode ser puxado dela. Sem isso, o campo só preencheria quando
+    // alguém trocasse de mês ou recarregasse a página.
+    renderEquipeFixa();
     toast(`${regs.length} recibos importados em ${rotulo}`, 'ok');
   }catch(e){
     console.error(e);

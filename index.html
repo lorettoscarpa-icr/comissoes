@@ -5306,6 +5306,13 @@ function renderAuditoria(){
     .sort((x,y)=>x.nome.localeCompare(y.nome));
   CAT_MANUAL_LISTA = manuaisCat.map(m=>m.chave);
 
+  // Fechamento antigo pode não ter todos os campos da auditoria (foram surgindo
+  // com o tempo). Sem isto, um campo faltando derruba a aba Mensal inteira.
+  ['vendasSemVendedora','qtdZeroValorPositivo','valorZeroQtdPositiva','anomaliasValor',
+   'nomesVendedoraAprox','possiveisDuplicatas','parcerias','ecommerce','lancamentosGestao']
+    .forEach(k=>{ if(!Array.isArray(a[k])) a[k] = []; });
+  if(!(a.produtosSemCategoria instanceof Map)) a.produtosSemCategoria = new Map();
+
   // Conta total de problemas
   // Valores R$ 0 + Anomalias agora ficam juntos como "Valores Atípicos" (warn)
   const problemas = [
@@ -6077,6 +6084,66 @@ function moverParaEscolhido(idOrigem){
   reencaixarMes(idOrigem, ano, mes);
 }
 
+// Classifica cada mês guardado numa das três situações combinadas:
+//   manter  — a referência já está no mês certo
+//   limpar  — é cópia de um relatório que JÁ está guardado no mês certo
+//   mover   — a referência está no mês errado e não é cópia de ninguém
+//   conferir— falta data confiável; quem decide é a pessoa
+function classificarMes(d, todos){
+  const o = refParseId(d.id);
+  const per = d.pericia;
+  const temDataReal = !!(per && per.porData);
+  const noLugarCerto = temDataReal && per.bateComRotulo;
+
+  if(noLugarCerto) return {estado:'manter', motivo:'a data do relatório confere com o mês'};
+
+  // Alguma cópia deste mesmo relatório já está guardada no mês certo dela?
+  const gemeosOk = (d.gemeos || []).filter(idIrmao=>{
+    const irmao = todos.find(x=>x.id === idIrmao);
+    return irmao && irmao.pericia && irmao.pericia.porData && irmao.pericia.bateComRotulo;
+  });
+  if(gemeosOk.length){
+    const q = refParseId(gemeosOk[0]);
+    return {estado:'limpar', ondeEstaOCerto: refRotulo(q.ano, q.mes),
+            motivo:`mesmos itens, vendas e valor de ${refRotulo(q.ano, q.mes)}, que já está no mês certo`};
+  }
+
+  if(temDataReal){
+    return {estado:'mover', para:{ano:per.melhor.ano, mes:per.melhor.mes},
+            motivo:`a data do relatório diz ${refRotulo(per.melhor.ano, per.melhor.mes)}`};
+  }
+  return {estado:'conferir', motivo: (per && per.motivo) || 'sem data guardada no relatório'};
+}
+
+// Apaga uma cópia duplicada. Só a cópia — o original, que está no mês certo,
+// não é tocado. Exige backup e confirmação, como qualquer mudança aqui.
+function limparMesDuplicado(idOrigem, ondeEstaOCerto){
+  const o = refParseId(idOrigem);
+  if(!o) return;
+  if(!REF_BACKUP_FEITO){ toast('Baixe o backup antes (passo 2)', 'er'); return; }
+
+  const oQueSai = COLECOES_MENSAIS.filter(col=>{
+    const dd = fsLer(col.id, idOrigem);
+    return dd && Object.keys(dd).length;
+  });
+  if(!oQueSai.length){ toast('Não há nada para limpar', 'am'); return; }
+
+  const ok = confirm(
+    `Apagar o que está guardado em ${refRotulo(o.ano, o.mes).toUpperCase()}?\n\n` +
+    `É cópia do relatório que já está em ${ondeEstaOCerto} — mesmos itens, vendas e valor.\n` +
+    `${ondeEstaOCerto} NÃO será tocado.\n\n` +
+    `Sai junto: ${oQueSai.map(c=>c.rot).join(', ')}.\n\n` +
+    `Dá pra voltar com o backup que você baixou.`
+  );
+  if(!ok) return;
+
+  oQueSai.forEach(col => fsApagar(col.id, idOrigem));
+  toast(`${refRotulo(o.ano, o.mes)} limpo`, 'ok');
+  renderModalRef();
+  atualizarMesUI();
+  carregarMesAtual();
+}
+
 function renderModalRef(){
   const corpo = document.getElementById('ref-corpo');
   if(!corpo) return;
@@ -6087,88 +6154,70 @@ function renderModalRef(){
     return;
   }
 
-  let repetidos = 0, comPista = 0;
+  const conta = {manter:0, limpar:0, mover:0, conferir:0};
   const linhas = diag.map(d=>{
     const o = refParseId(d.id);
     const per = d.pericia;
+    const c = classificarMes(d, diag);
+    conta[c.estado]++;
 
-    // ── TESTE QUE DECIDE: itens, vendas e valor iguais = mesmo relatório ──
-    let situacao;
-    if(d.gemeos && d.gemeos.length){
-      repetidos++;
-      const outros = d.gemeos.map(i=>{ const q = refParseId(i); return refRotulo(q.ano, q.mes); }).join(' e ');
-      situacao = `<span class="ref-mal">DUPLICADO</span>
-        <div class="ref-rep">Itens, vendas e valor idênticos aos de ${outros}. É o mesmo relatório subido duas vezes — um dos dois é cópia, e o mês verdadeiro pode nunca ter sido processado.</div>`;
-    } else {
-      situacao = `<span class="ref-ok2">relatório único</span>`;
+    const SELO = {
+      manter:  '<span class="ref-ok2">✓ MANTER</span>',
+      limpar:  '<span class="ref-mal">✗ LIMPAR — duplicata</span>',
+      mover:   '<span class="ref-pista">→ MOVER</span>',
+      conferir:'<span class="ref-dunno">? CONFERIR</span>'
+    };
+    let situacao = `${SELO[c.estado]}<div class="ref-fonte">${escHtml(c.motivo)}</div>`;
+
+    let acao = '<span class="ref-dunno">—</span>';
+    if(c.estado === 'limpar'){
+      acao = `<button class="cat-rm" onclick="limparMesDuplicado('${d.id}', '${escHtml(c.ondeEstaOCerto)}')">Limpar este mês</button>`;
+    } else if(c.estado === 'mover'){
+      acao = `<button class="cat-rm" onclick="reencaixarMes('${d.id}', ${c.para.ano}, ${c.para.mes})">Mover para ${refRotulo(c.para.ano, c.para.mes)}</button>`;
+    } else if(c.estado === 'conferir'){
+      // Sem data confiável: a pessoa escolhe o destino na mão
+      const sugerido = (per && per.conclusivo) ? refMontaId(per.melhor.ano, per.melhor.mes) : '';
+      const opcoes = [-3,-2,-1,1,2,3].map(delta=>{
+        const dt = new Date(o.ano, o.mes + delta, 1);
+        const idd = refMontaId(dt.getFullYear(), dt.getMonth());
+        return `<option value="${dt.getFullYear()}|${dt.getMonth()}"${idd===sugerido?' selected':''}>${refRotulo(dt.getFullYear(), dt.getMonth())}</option>`;
+      }).join('');
+      acao = `<select class="cat-sel" id="ref-dest-${d.id}" style="min-width:128px;">
+          <option value="">— não mover —</option>${opcoes}
+        </select>
+        <button class="cat-rm" style="margin-top:6px;" onclick="moverParaEscolhido('${d.id}')">Mover</button>`;
+      if(per && per.conclusivo && !per.porData){
+        situacao += `<div class="ref-pista-lin">calendário sugere ${refRotulo(per.melhor.ano, per.melhor.mes)} — confira antes</div>`;
+      }
     }
-
-    // ── PISTA (não é veredito): o calendário dos dias com venda ──
-    let pista = '<span class="ref-dunno">—</span>';
-    let sugerido = '';
-    if(per && per.porData){
-      // Data de verdade tirada do relatório: isso não é pista, é o dado
-      comPista++;
-      sugerido = refMontaId(per.melhor.ano, per.melhor.mes);
-      const alvo = refRotulo(per.melhor.ano, per.melhor.mes);
-      pista = per.bateComRotulo
-        ? `<span class="ref-ok2">✓ o relatório é de ${alvo}, e está no lugar certo</span>`
-        : `<span class="ref-mal">✗ o relatório é de ${alvo}</span>`;
-      pista += `<div class="ref-fonte">${escHtml(per.fonte)}</div>`;
-    } else if(per && per.conclusivo){
-      comPista++;
-      sugerido = refMontaId(per.melhor.ano, per.melhor.mes);
-      const igual = per.bateComRotulo;
-      pista = `<span class="${igual ? 'ref-ok2' : 'ref-pista'}">${igual ? 'compatível com o próprio mês' : 'parece ser ' + refRotulo(per.melhor.ano, per.melhor.mes)}</span>
-        <div class="ref-fonte">sem data no relatório — deduzido pelo calendário dos dias com venda</div>`;
-    } else if(per){
-      pista = `<span class="ref-dunno">não deu pra dizer<br><span style="font-size:10px;">${escHtml(per.motivo)}</span></span>`;
-    }
-
-    // ── Destino: quem escolhe é você ──
-    const opcoes = [-3,-2,-1,1,2,3].map(delta=>{
-      const dt = new Date(o.ano, o.mes + delta, 1);
-      const id = refMontaId(dt.getFullYear(), dt.getMonth());
-      const sel = (id === sugerido) ? ' selected' : '';
-      return `<option value="${dt.getFullYear()}|${dt.getMonth()}"${sel}>${refRotulo(dt.getFullYear(), dt.getMonth())}</option>`;
-    }).join('');
-    const acao = `
-      <select class="cat-sel" id="ref-dest-${d.id}" style="min-width:130px;">
-        <option value="">— não mover —</option>
-        ${opcoes}
-      </select>
-      <button class="cat-rm" style="margin-top:6px;" onclick="moverParaEscolhido('${d.id}')">Mover</button>`;
-
-    const prova = (per && !per.porData && per.diasLista)
-      ? `<tr class="ref-prova"><td colspan="6">
-          <strong>Dias com venda:</strong> ${per.diasLista.join(', ')}<br>
-          <strong>Domingos que teriam venda em cada mês:</strong> ${(per.candidatos||[]).map(c=> c.valido ? `${MESES[c.mes].slice(0,3)}: ${c.vendasEmDomingo}` : `${MESES[c.mes].slice(0,3)}: dia ${Math.max(...per.diasLista)} não existe`).join(' · ')}
-          <span class="ref-prova-nota">— o mês compatível é o que dá zero. Isso é pista, não prova: confira no sistema de vendas antes de mover.</span>
-        </td></tr>`
-      : '';
 
     return `<tr>
       <td><strong>${refRotulo(o.ano, o.mes)}</strong><div class="ref-tot">${escHtml(d.arquivoNome || '—')}</div></td>
       <td class="tnum">${fmtInt(d.pecas || 0)}</td>
       <td class="tnum">${fmtInt(d.vendas || 0)}</td>
       <td class="tnum">${fmtBRL(d.valor || 0)}</td>
-      <td>${situacao}${pista === '<span class="ref-dunno">—</span>' ? '' : `<div class="ref-pista-lin">${pista}</div>`}</td>
+      <td>${situacao}</td>
       <td>${acao}</td>
-    </tr>${prova}`;
+    </tr>`;
   }).join('');
 
-  let resumo = '';
-  if(repetidos){
-    resumo += `<div class="ref-alerta"><strong>${repetidos} ${repetidos===1?'mês tem':'meses têm'} itens, vendas e valor idênticos aos de outro mês.</strong> São o mesmo relatório subido duas vezes. Não é caso de mover: confira no sistema de vendas qual mês está faltando e processe o relatório certo.</div>`;
-  } else {
-    resumo += `<div class="ref-alerta ok">Nenhum relatório duplicado: os meses têm números diferentes entre si.</div>`;
-  }
+  const partes = [];
+  if(conta.manter)   partes.push(`${conta.manter} no lugar certo`);
+  if(conta.mover)    partes.push(`<strong>${conta.mover} para mover</strong>`);
+  if(conta.limpar)   partes.push(`<strong>${conta.limpar} duplicata${conta.limpar>1?'s':''} para limpar</strong>`);
+  if(conta.conferir) partes.push(`${conta.conferir} sem data — conferir na mão`);
+  const resumo = (conta.mover || conta.limpar || conta.conferir)
+    ? `<div class="ref-alerta">${partes.join(' · ')}. Comece pelos mais antigos: mover um mês libera o destino do seguinte.</div>`
+    : `<div class="ref-alerta ok">Todos os fechamentos estão no mês de referência certo.</div>`;
 
   corpo.innerHTML = `
     <div class="ref-passo">
       <h3>1. O que a análise encontrou</h3>
-      <p><strong>Quando o relatório guardou a data, é ela que manda</strong> — a coluna Situação diz de que mês ele é e de onde veio essa data. Só quando não existe data guardada é que entra a dedução pelo calendário, e aí fica escrito que é dedução.<br>
-      <strong>Itens, vendas e valor</strong> servem para achar relatório repetido: os três iguais em dois meses = mesmo arquivo subido duas vezes.</p>
+      <p>Cada fechamento cai numa de três situações:<br>
+      <strong>MANTER</strong> — a data do relatório bate com o mês onde ele está.<br>
+      <strong>LIMPAR</strong> — é cópia de um relatório que já está guardado no mês certo (mesmos itens, vendas e valor). Some a cópia; o original não é tocado.<br>
+      <strong>MOVER</strong> — a data do relatório diz outro mês, e não existe cópia dele em lugar nenhum.<br>
+      <strong>CONFERIR</strong> — não há data guardada no relatório. Aí quem escolhe o mês é você.</p>
       <p style="color:var(--ou2);">Fechamentos antigos podem não ter data guardada. Nesse caso, o caminho mais curto é <strong>baixar o relatório de novo no sistema de vendas e subir outra vez</strong>: o painel agora lê o mês do próprio arquivo e grava no lugar certo sozinho.</p>
       ${resumo}
       <table class="ref-tab">

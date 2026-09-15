@@ -1834,6 +1834,7 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
 </div>
 
 <main id="sec-mensal">
+  <div id="aviso-ref-area" style="display:none;"></div>
   <div class="titulo-pag">
     <h1>Fechamento Mensal</h1>
     <div class="linha"></div>
@@ -2259,6 +2260,7 @@ window.inicializarDashboardLogado = async function(){
   // Carrega o fechamento do mês atual (do cache)
   carregarMesAtual();
   renderMetasResumo();
+  avisarMesesForaDeLugar();   // só avisa; quem move é a pessoa, na tela de conferência
   window.scrollTo({top:0, behavior:'smooth'});
 };
 
@@ -6013,6 +6015,49 @@ function reencaixarMes(idOrigem, anoDestino, mesDestino){
   renderModalRef();
   atualizarMesUI();
   carregarMesAtual();
+}
+
+// Detecção automática (só leitura) dos meses no lugar errado.
+// Roda ao abrir o painel e avisa. NÃO move nada: mover é decisão de quem
+// está olhando, num clique na tela de conferência.
+let DETECCAO_RODOU = false;
+
+function mesesForaDeLugar(){
+  const fora = [];
+  fsListar('fechamentos').forEach(id=>{
+    const o = refParseId(id);
+    if(!o) return;
+    const dados = fsLer('fechamentos', id);
+    if(!dados) return;
+    const real = dataRealDoFechamento(dados);   // só data de verdade, nada de dedução
+    if(!real) return;
+    if(real.ano === o.ano && real.mes === o.mes) return;
+    fora.push({id, de:o, para:{ano:real.ano, mes:real.mes}, fonte:real.fonte});
+  });
+  return fora;
+}
+
+function avisarMesesForaDeLugar(){
+  if(DETECCAO_RODOU) return;
+  DETECCAO_RODOU = true;
+  const fora = mesesForaDeLugar();
+  if(!fora.length) return;
+
+  console.log('Meses fora do mês de referência:',
+    fora.map(m=>`${refRotulo(m.de.ano,m.de.mes)} → ${refRotulo(m.para.ano,m.para.mes)} (${m.fonte})`).join(' | '));
+
+  const n = fora.length;
+  toast(`${n} ${n===1?'fechamento está':'fechamentos estão'} fora do mês de referência — abra Histórico › Conferir mês`, 'am');
+
+  const area = document.getElementById('aviso-ref-area');
+  if(area){
+    area.style.display = '';
+    area.innerHTML = `<div class="pag-aviso" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+      <span><strong>${n} ${n===1?'fechamento está guardado':'fechamentos estão guardados'} no mês errado.</strong>
+      A data dentro do próprio relatório diz outro mês: ${fora.slice(0,4).map(m=>`${refRotulo(m.de.ano,m.de.mes)} é ${refRotulo(m.para.ano,m.para.mes)}`).join(' · ')}${n>4?` · e mais ${n-4}`:''}.</span>
+      <button class="bup" onclick="abrirModalRef()">Conferir e corrigir</button>
+    </div>`;
+  }
 }
 
 function abrirModalRef(){

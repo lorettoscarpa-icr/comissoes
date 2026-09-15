@@ -1247,6 +1247,10 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .fx-origem{color:#a8d4a8;font-size:8px;letter-spacing:1px;}
 .fx-origem-nota{font-size:9px;color:var(--cr3);font-style:italic;margin-top:4px;}
 .ref-pista-lin{font-size:10px;color:var(--cr3);margin-top:5px;}
+.ref-invest{margin-top:8px;border-left:2px solid var(--oud);padding-left:9px;}
+.ref-invest-tit{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ou2);margin:7px 0 2px;font-weight:600;}
+.ref-prova-inline{font-size:10px;color:var(--cr3);line-height:1.65;}
+.ref-prova-inline strong{color:var(--cr2);font-weight:600;}
 .ref-alerta{border-left:3px solid #c98b8b;background:rgba(192,80,74,.1);padding:12px 14px;font-size:12px;color:#e0b0ac;line-height:1.6;margin-bottom:12px;}
 .ref-alerta.ok{border-left-color:#6dbf6d;background:rgba(54,79,36,.35);color:#a8d4a8;}
 /* Corretor de mês de referência */
@@ -6121,6 +6125,62 @@ function colecoesCom(id){
   }).map(col=>col.id);
 }
 
+// Cruza as DUAS provas independentes de um fechamento:
+//   1. a data guardada dentro dele (data de venda ou período lido do arquivo)
+//   2. o calendário dos dias com venda (a loja não vende em domingo nem em
+//      dia que não existe no mês)
+// Quando as duas concordam, a conclusão é firme. Quando divergem, é isso que
+// precisa aparecer na tela — é o caso de dois relatórios disputando um mês.
+function evidenciaCruzada(id){
+  const dados = fsLer('fechamentos', id);
+  const o = refParseId(id);
+  if(!dados || !o) return null;
+
+  const porData = dataRealDoFechamento(dados);
+  const porCal  = periciarPorCalendario(dados, o.ano, o.mes);
+
+  const rotData = porData ? refRotulo(porData.ano, porData.mes) : null;
+  const rotCal  = (porCal && porCal.conclusivo) ? refRotulo(porCal.melhor.ano, porCal.melhor.mes) : null;
+
+  let veredito;
+  if(rotData && rotCal){
+    veredito = (rotData === rotCal)
+      ? {tipo:'acordo', texto:`as duas provas dizem ${rotData}`}
+      : {tipo:'divergencia', texto:`as provas DIVERGEM: a data diz ${rotData}, o calendário dos dias diz ${rotCal}`};
+  } else if(rotData){
+    veredito = {tipo:'soData', texto:`só a data conclui: ${rotData}. O calendário não separou (${porCal ? porCal.motivo : 'sem dias suficientes'})`};
+  } else if(rotCal){
+    veredito = {tipo:'soCal', texto:`só o calendário conclui: ${rotCal}. Não há data guardada no relatório`};
+  } else {
+    veredito = {tipo:'nada', texto:'nenhuma das duas provas conclui'};
+  }
+
+  return {
+    id, porData, porCal, rotData, rotCal, veredito,
+    fonteData: porData ? porData.fonte : null,
+    dias: porCal ? porCal.dias : 0,
+    diasLista: porCal ? (porCal.diasLista || []) : [],
+    candidatos: porCal ? (porCal.candidatos || []) : []
+  };
+}
+
+// HTML da investigação, pra linha que está em conflito e pra quem disputa com ela
+function blocoEvidencia(id){
+  const e = evidenciaCruzada(id);
+  if(!e) return '';
+  const cls = e.veredito.tipo === 'divergencia' ? 'ref-mal'
+            : e.veredito.tipo === 'acordo' ? 'ref-ok2' : 'ref-dunno';
+  const notas = (e.candidatos || [])
+    .filter(c=>c.valido)
+    .map(c=>`${MESES[c.mes].slice(0,3)}: ${c.vendasEmDomingo}`)
+    .join(' · ');
+  return `<div class="ref-prova-inline">
+    <div><strong>Data guardada:</strong> ${e.rotData ? escHtml(e.rotData) + ` <span style="opacity:.7">(${escHtml(e.fonteData || '')})</span>` : 'não tem'}</div>
+    <div><strong>Calendário dos dias:</strong> ${e.rotCal ? escHtml(e.rotCal) : 'não concluiu'}${notas ? ` <span style="opacity:.7">— domingos com venda por mês testado: ${notas}</span>` : ''}</div>
+    <div class="${cls}" style="margin-top:4px;">${escHtml(e.veredito.texto)}</div>
+  </div>`;
+}
+
 function planejarConserto(diag){
   const plano = {};
   // Ocupação por COLEÇÃO: mês com folha realizada mas sem fechamento ainda
@@ -6300,7 +6360,13 @@ function renderModalRef(){
 
     let acao = '<span class="ref-dunno">—</span>';
     if(c.estado === 'conflito'){
-      // Depois de conferir no sistema de vendas, dá pra apagar o que sobrou
+      // Mostra as duas provas — deste e do que está no mês disputado
+      const idDisputado = refMontaId(c.para.ano, c.para.mes);
+      situacao += `<div class="ref-invest"><div class="ref-invest-tit">Este fechamento</div>${blocoEvidencia(d.id)}`;
+      if(diag.some(x=>x.id === idDisputado)){
+        situacao += `<div class="ref-invest-tit">O que está em ${refRotulo(c.para.ano, c.para.mes)}</div>${blocoEvidencia(idDisputado)}`;
+      }
+      situacao += '</div>';
       acao = `<button class="cat-rm" onclick="apagarMesGuardado('${d.id}', '', false)">Apagar este fechamento</button>`;
     } else if(c.estado === 'limpar'){
       acao = `<button class="cat-rm" onclick="limparMesDuplicado('${d.id}', '${escHtml(c.ondeEstaOCerto)}')">Limpar este mês</button>`;

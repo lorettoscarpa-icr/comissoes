@@ -2337,7 +2337,6 @@ const FS_CACHE = {
   catManual: {},     // 'global' -> { 'produto normalizado': {cat, nome} } — classificações feitas na mão
   catsExtras: {},    // 'global' -> { itens: { id: {nome, comissao, criadaEm} } } — categorias criadas na tela
   bonusApurado: {},  // 'AAAA_MM' -> bônus apurado publicado pelo app de Metas (só leitura aqui)
-  totaisKigi: {},    // 'global' -> { 'AAAA-M': {vendas, valor} } — total do mês no sistema de vendas
   carregado: false,
   carregando: false
 };
@@ -4072,7 +4071,7 @@ async function inicializarFirestoreCache(){
 
   try {
     // Carrega todas as coleções em paralelo
-    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag, snapCatM, snapCatX, snapBon, snapKigi] = await Promise.all([
+    const [snapFech, snapMetas, snapAting, snapHE, snapFixa, snapAdiant, snapPag, snapCatM, snapCatX, snapBon] = await Promise.all([
       getDocs(collection(db, 'fechamentos')),
       getDocs(collection(db, 'metas')),
       getDocs(collection(db, 'atingimentos')),
@@ -4082,8 +4081,7 @@ async function inicializarFirestoreCache(){
       getDocs(collection(db, 'pagamentos')),
       getDocs(collection(db, 'catManual')),
       getDocs(collection(db, 'catsExtras')),
-      getDocs(collection(db, 'ls_bonus_apurado')),
-      getDocs(collection(db, 'totaisKigi'))
+      getDocs(collection(db, 'ls_bonus_apurado'))
     ]);
 
     snapFech.forEach(d => { FS_CACHE.fechamentos[d.id] = d.data(); });
@@ -4096,7 +4094,6 @@ async function inicializarFirestoreCache(){
     snapCatM.forEach(d => { FS_CACHE.catManual[d.id] = d.data(); });
     snapCatX.forEach(d => { FS_CACHE.catsExtras[d.id] = d.data(); });
     snapBon.forEach(d => { FS_CACHE.bonusApurado[d.id] = d.data(); });
-    snapKigi.forEach(d => { FS_CACHE.totaisKigi[d.id] = d.data(); });
 
     FS_CACHE.carregado = true;
     console.log('Firestore: cache carregado',
@@ -4240,7 +4237,6 @@ function fsSalvar(colecao, id, dados, opcoes){
     else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
     else if(colecao === 'catsExtras') chaveLS = `loretto-catsextras-${id}`;
     else if(colecao === 'bonusApurado') chaveLS = `loretto-bonusap-${id}`;
-    else if(colecao === 'totaisKigi') chaveLS = `loretto-kigi-${id}`;
     if(chaveLS) localStorage.setItem(chaveLS, JSON.stringify(dados));
   } catch(e){}
 
@@ -4321,7 +4317,6 @@ function fsLer(colecao, id){
     else if(colecao === 'catManual') chaveLS = `loretto-catmanual-${id}`;
     else if(colecao === 'catsExtras') chaveLS = `loretto-catsextras-${id}`;
     else if(colecao === 'bonusApurado') chaveLS = `loretto-bonusap-${id}`;
-    else if(colecao === 'totaisKigi') chaveLS = `loretto-kigi-${id}`;
     if(chaveLS){
       const raw = localStorage.getItem(chaveLS);
       if(raw) return JSON.parse(raw);
@@ -6232,50 +6227,6 @@ function blocoEvidencia(id){
   </div>`;
 }
 
-// ── TOTAIS DO SISTEMA DE VENDAS ──
-// Digitados uma vez, direto da tela do Kigi. São a verdade sobre cada mês.
-// O painel sempre fecha um pouco ABAIXO do Kigi (exclui frete, taxa e
-// lançamentos de gestão), então a razão painel/Kigi fica em torno de 0,95 e
-// NUNCA passa de 1. Isso identifica o mês de um fechamento sem depender de
-// data guardada nem de calendário.
-function lerTotaisKigi(){
-  const d = fsLer('totaisKigi', 'global');
-  return (d && typeof d === 'object') ? d : {};
-}
-function salvarTotalKigi(id, vendas, valor){
-  const t = lerTotaisKigi();
-  if(!vendas && !valor) delete t[id];
-  else t[id] = {vendas: Number(vendas) || 0, valor: Number(valor) || 0};
-  fsSalvar('totaisKigi', 'global', t, {silencioso:true});
-}
-function atualizarTotalKigi(id, campo, valorRaw){
-  const t = lerTotaisKigi();
-  const atual = t[id] || {vendas:0, valor:0};
-  atual[campo] = parseValor(valorRaw);
-  salvarTotalKigi(id, atual.vendas, atual.valor);
-}
-
-// De que mês é este fechamento, comparando com os totais do Kigi
-function identificarPorKigi(dadosFech){
-  const totais = lerTotaisKigi();
-  const val = Number(dadosFech && dadosFech.totalGeralValor) || 0;
-  if(!val) return null;
-
-  let melhor = null;
-  Object.keys(totais).forEach(id=>{
-    const o = refParseId(id);
-    const kv = Number(totais[id].valor) || 0;
-    if(!o || !kv) return;
-    const razao = val / kv;
-    // Painel maior que o Kigi é impossível — aquele mês está descartado
-    if(razao >= 1) return;
-    // Muito abaixo também não é o mês: seria metade do movimento sumindo
-    if(razao < 0.80) return;
-    if(!melhor || razao > melhor.razao) melhor = {ano:o.ano, mes:o.mes, razao};
-  });
-  return melhor;
-}
-
 function planejarConserto(diag){
   const plano = {};
   // Ocupação por COLEÇÃO: mês com folha realizada mas sem fechamento ainda
@@ -6284,19 +6235,24 @@ function planejarConserto(diag){
   COLECOES_MENSAIS.forEach(col => ocupado[col.id] = new Set());
   diag.forEach(d => colecoesCom(d.id).forEach(cid => ocupado[cid].add(d.id)));
 
-  // ── Passo 0: quando existe total do Kigi, ele decide de que mês é cada um ──
-  const porKigi = {};
+  // ── Passo 0: de que mês cada fechamento diz ser ──
+  const mesDe = {};
   diag.forEach(d=>{
-    const k = identificarPorKigi(fsLer('fechamentos', d.id));
-    if(k) porKigi[d.id] = k;
+    const per = d.pericia;
+    if(per && per.porData) mesDe[d.id] = {ano:per.melhor.ano, mes:per.melhor.mes};
   });
 
-  // Dois fechamentos apontando pro mesmo mês: fica o de razão MAIOR — é o que
-  // mais se aproxima do total do Kigi, ou seja, a exportação mais completa.
+  // Dois relatórios apontando pro MESMO mês, com números diferentes: fica o
+  // MAIOR. Relatório reexportado depois cresce — entram as vendas lançadas
+  // com atraso e os ajustes. O menor é a foto mais antiga do mesmo mês.
+  const tamanhoDe = id=>{
+    const f = fsLer('fechamentos', id) || {};
+    return Number(f.totalGeralValor) || 0;
+  };
   const donoDoMes = {};
-  Object.keys(porKigi).forEach(id=>{
-    const alvo = refMontaId(porKigi[id].ano, porKigi[id].mes);
-    if(!donoDoMes[alvo] || porKigi[id].razao > porKigi[donoDoMes[alvo]].razao) donoDoMes[alvo] = id;
+  Object.keys(mesDe).forEach(id=>{
+    const alvo = refMontaId(mesDe[id].ano, mesDe[id].mes);
+    if(!donoDoMes[alvo] || tamanhoDe(id) > tamanhoDe(donoDoMes[alvo])) donoDoMes[alvo] = id;
   });
 
   // ── Passo 1: o que cada mês é, olhando só pra ele ──
@@ -6305,26 +6261,16 @@ function planejarConserto(diag){
     const per = d.pericia;
     const temData = !!(per && per.porData);
 
-    const k = porKigi[d.id];
-    if(k){
-      const alvo = refMontaId(k.ano, k.mes);
-      const pct = (k.razao * 100).toFixed(1).replace('.', ',');
-      if(donoDoMes[alvo] !== d.id){
-        // Perdeu pro irmão: exportação mais antiga do mesmo mês
-        const rival = porKigi[donoDoMes[alvo]];
+    // Perdeu a disputa do mês pro irmão maior: é a exportação antiga
+    const meu = mesDe[d.id];
+    if(meu){
+      const alvo = refMontaId(meu.ano, meu.mes);
+      if(donoDoMes[alvo] && donoDoMes[alvo] !== d.id){
         const q = refParseId(donoDoMes[alvo]);
-        plano[d.id] = {estado:'limpar', ondeEstaOCerto: refRotulo(q.ano, q.mes), viaKigi:true,
-          motivo:`também é ${refRotulo(k.ano,k.mes)}, mas é uma exportação mais antiga: fecha em ${pct}% do total do sistema de vendas, contra ${(rival.razao*100).toFixed(1).replace('.',',')}% do que está em ${refRotulo(q.ano,q.mes)}`};
+        plano[d.id] = {estado:'limpar', ondeEstaOCerto: refRotulo(q.ano, q.mes),
+          motivo:`também é ${refRotulo(meu.ano, meu.mes)}, mas é a exportação mais antiga: ${fmtBRL(tamanhoDe(d.id))} contra ${fmtBRL(tamanhoDe(donoDoMes[alvo]))} do que está em ${refRotulo(q.ano, q.mes)} — o relatório cresce quando é reexportado depois dos ajustes`};
         return;
       }
-      if(k.ano === o.ano && k.mes === o.mes){
-        plano[d.id] = {estado:'manter', viaKigi:true,
-          motivo:`bate com ${refRotulo(k.ano,k.mes)} no sistema de vendas (${pct}% do total do mês)`};
-        return;
-      }
-      plano[d.id] = {estado:'pendente', para:{ano:k.ano, mes:k.mes}, viaKigi:true,
-        motivo:`é de ${refRotulo(k.ano,k.mes)}: fecha em ${pct}% do total daquele mês no sistema de vendas`};
-      return;
     }
 
     if(temData && per.bateComRotulo){
@@ -6493,24 +6439,31 @@ function blocoPlanoHTML(diag, plano){
           botao:`<button class="cat-rm" onclick="reencaixarMes('${d.id}', ${pl.para.ano}, ${pl.para.mes})">Mover</button>`});
       });
 
-  // meses que o sistema de vendas tem mas o painel não: falta processar
-  const totais = lerTotaisKigi();
-  const ocupados = new Set();
+  // Buraco na sequência: mês sem fechamento entre dois que têm.
+  // A loja não para de vender no meio do ano, então buraco = relatório que
+  // nunca foi processado.
+  const ocupados = [];
   diag.forEach(d=>{
     const pl = plano[d.id];
-    if(pl.estado === 'manter') ocupados.add(d.id);
-    if(pl.estado === 'mover')  ocupados.add(refMontaId(pl.para.ano, pl.para.mes));
+    if(pl.estado === 'manter') ocupados.push(d.id);
+    else if(pl.estado === 'mover') ocupados.push(refMontaId(pl.para.ano, pl.para.mes));
+    else if(pl.estado === 'conflito' || pl.estado === 'aguardando' || pl.estado === 'conferir') ocupados.push(d.id);
   });
-  Object.keys(totais).sort().forEach(id=>{
-    if(ocupados.has(id)) return;
-    if(!(Number(totais[id].valor) > 0)) return;
+  const emMeses = ocupados.map(id=>{
     const o = refParseId(id);
-    if(!o) return;
-    passos.push({tipo:'faltando',
-      texto:`Subir o relatório de <strong>${refRotulo(o.ano,o.mes)}</strong>`,
-      detalhe:`o sistema de vendas tem ${fmtBRL(totais[id].valor)} neste mês, mas não há fechamento nenhum no painel`,
-      botao:'<span class="ref-dunno">baixe no sistema de vendas e suba em Comissões</span>'});
-  });
+    return o ? o.ano * 12 + o.mes : null;
+  }).filter(v=>v !== null).sort((a,b)=>a-b);
+
+  if(emMeses.length >= 2){
+    for(let m = emMeses[0] + 1; m < emMeses[emMeses.length-1]; m++){
+      if(emMeses.includes(m)) continue;
+      const ano = Math.floor(m / 12), mes = m % 12;
+      passos.push({tipo:'faltando',
+        texto:`Subir o relatório de <strong>${refRotulo(ano, mes)}</strong>`,
+        detalhe:`não há fechamento nenhum neste mês, e existem meses antes e depois dele — o relatório nunca foi processado`,
+        botao:'<span class="ref-dunno">baixe no sistema de vendas e suba em Comissões</span>'});
+    }
+  }
 
   if(!passos.length){
     return `<div class="ref-passo"><h3>Plano de execução</h3>
@@ -6532,46 +6485,6 @@ function blocoPlanoHTML(diag, plano){
     <p>Faça <strong>de cima para baixo</strong> — cada passo libera o lugar do seguinte. A lista se refaz sozinha a cada ação, então o próximo passo é sempre o primeiro da lista.</p>
     ${REF_BACKUP_FEITO ? '' : '<div class="ref-alerta">Baixe o backup primeiro (logo abaixo). Os botões só liberam depois disso.</div>'}
     ${linhas}
-  </div>`;
-}
-
-// Totais do sistema de vendas — digitados uma vez, por mês
-function blocoTotaisKigiHTML(diag){
-  const totais = lerTotaisKigi();
-  // meses que aparecem no painel, mais 3 pra trás e 1 pra frente
-  const ids = new Set(Object.keys(totais));
-  diag.forEach(d=>{
-    const o = refParseId(d.id);
-    if(!o) return;
-    for(let k=-3;k<=1;k++){
-      const dt = new Date(o.ano, o.mes + k, 1);
-      ids.add(refMontaId(dt.getFullYear(), dt.getMonth()));
-    }
-  });
-  const linhas = [...ids].sort((a,b)=>{
-    const pa=refParseId(a), pb=refParseId(b);
-    return pa.ano-pb.ano || pa.mes-pb.mes;
-  }).map(id=>{
-    const o = refParseId(id);
-    const t = totais[id] || {vendas:0, valor:0};
-    return `<tr>
-      <td>${refRotulo(o.ano,o.mes)}</td>
-      <td><input type="text" class="cat-sel" style="width:110px;text-align:right;" inputmode="decimal"
-             value="${t.vendas ? formatarNum(t.vendas).replace(',00','') : ''}" placeholder="0"
-             onchange="atualizarTotalKigi('${id}','vendas',this.value);renderModalRef()"></td>
-      <td><input type="text" class="cat-sel" style="width:140px;text-align:right;" inputmode="decimal"
-             value="${t.valor ? formatarNum(t.valor) : ''}" placeholder="0,00"
-             onchange="atualizarTotalKigi('${id}','valor',this.value);renderModalRef()"></td>
-    </tr>`;
-  }).join('');
-
-  return `<div class="ref-passo">
-    <h3>Totais do sistema de vendas</h3>
-    <p>Abra o relatório do sistema de vendas mês a mês e copie aqui o <strong>total de vendas</strong> e o <strong>valor de vendas</strong>. Digitado uma vez, isso vira a prova mais forte: o painel sempre fecha um pouco abaixo do sistema (exclui frete e taxa) e <strong>nunca acima</strong> — então dá pra dizer de que mês é cada fechamento sem depender de dedução nenhuma.</p>
-    <table class="ref-tab">
-      <thead><tr><th>Mês</th><th class="tnum">Total de vendas</th><th class="tnum">Valor de vendas</th></tr></thead>
-      <tbody>${linhas}</tbody>
-    </table>
   </div>`;
 }
 
@@ -6663,7 +6576,6 @@ function renderModalRef(){
 
   corpo.innerHTML = `
     ${blocoPlanoHTML(diag, plano)}
-    ${blocoTotaisKigiHTML(diag)}
     <div class="ref-passo">
       <h3>Detalhe de cada fechamento</h3>
       <p>Cada fechamento cai numa de três situações:<br>

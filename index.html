@@ -3137,7 +3137,7 @@ function processarFormatoKigi(linhas, blocos){
   VENDEDORAS.forEach(v=>{
     result[v] = {};
     ORDEM_CAT.forEach(c=>{
-      result[v][c] = {qtd:0, valor:0};
+      result[v][c] = {qtd:0, valor:0, qtdSemValor:0};
     });
     result[v]._porDia = {}; // {dia: {sapatos:0, sapatos_encomenda:0, ...}}
   });
@@ -3292,6 +3292,9 @@ function processarFormatoKigi(linhas, blocos){
         // Soma normal (qtd e valor podem ser negativos = devolução real)
         result[vend][cat].qtd += qtd;
         result[vend][cat].valor += valor;
+        // Peça que saiu por R$ 0 (brinde, bonificação, erro de lançamento):
+        // conta no total de peças, mas NÃO gera comissão
+        if(qtd > 0 && valor === 0) result[vend][cat].qtdSemValor += qtd;
       }
       totalGeralValor += valor;
       totalGeralPecas += qtd;
@@ -3357,7 +3360,9 @@ function processarFormatoKigi(linhas, blocos){
     let total = {qtd:0, valor:0, comissao:0};
     ORDEM_CAT.forEach(c=>{
       const linha = result[v][c];
-      linha.comissao = linha.qtd * COMISSAO[c];
+      // Peça sem valor não paga comissão: brinde não é venda
+      const qtdPaga = linha.qtd - (linha.qtdSemValor || 0);
+      linha.comissao = qtdPaga * COMISSAO[c];
       total.qtd += linha.qtd;
       total.valor += linha.valor;
       total.comissao += linha.comissao;
@@ -3581,7 +3586,7 @@ function processarBuffer(){
     VENDEDORAS.forEach(v=>{
       result[v] = {};
       ORDEM_CAT.forEach(c=>{
-        result[v][c] = {qtd:0, valor:0};
+        result[v][c] = {qtd:0, valor:0, qtdSemValor:0};
       });
     });
     let totalGeralValor = 0;
@@ -3699,6 +3704,7 @@ function processarBuffer(){
 
       result[vend][cat].qtd   += qtd;
       result[vend][cat].valor += valor;
+      if(qtd > 0 && valor === 0) result[vend][cat].qtdSemValor += qtd;
     }
 
     // ── AUDITORIA: Detecta anomalias estatísticas POR MODELO ──
@@ -3757,7 +3763,9 @@ function processarBuffer(){
       let totalValor = 0;
       ORDEM_CAT.forEach(c=>{
         const linha = result[v][c];
-        linha.comissao = linha.qtd * COMISSAO[c];
+        // Peça sem valor não paga comissão: brinde não é venda
+      const qtdPaga = linha.qtd - (linha.qtdSemValor || 0);
+      linha.comissao = qtdPaga * COMISSAO[c];
         totalComissao += linha.comissao;
         totalQtd += linha.qtd;
         totalValor += linha.valor;
@@ -5195,7 +5203,7 @@ function carregarFechamentoMes(){
         if(dados.result[v]){
           ORDEM_CAT.forEach(c=>{
             if(!dados.result[v][c]){
-              dados.result[v][c] = {qtd: 0, valor: 0, comissao: 0};
+              dados.result[v][c] = {qtd: 0, valor: 0, comissao: 0, qtdSemValor: 0};
             }
           });
         }
@@ -6089,30 +6097,91 @@ function moverParaEscolhido(idOrigem){
 //   limpar  — é cópia de um relatório que JÁ está guardado no mês certo
 //   mover   — a referência está no mês errado e não é cópia de ninguém
 //   conferir— falta data confiável; quem decide é a pessoa
-function classificarMes(d, todos){
-  const o = refParseId(d.id);
-  const per = d.pericia;
-  const temDataReal = !!(per && per.porData);
-  const noLugarCerto = temDataReal && per.bateComRotulo;
+// Planeja o conserto da fila inteira ANTES de oferecer qualquer botão.
+// Não adianta classificar mês a mês: mover um mês depende do destino estar
+// livre, e o destino só fica livre se o mês que está lá também sair.
+//
+// Estados:
+//   manter     — a data do relatório bate com o mês onde ele está
+//   limpar     — é cópia de um relatório que já está no mês certo
+//   mover      — a data diz outro mês, e o destino está livre (ou vai ficar)
+//   conflito   — a data diz um mês que JÁ tem outro relatório, diferente, e
+//                que também se diz daquele mês. Ninguém move: alguém precisa
+//                olhar e decidir qual dos dois é o de verdade.
+//   aguardando — o destino está ocupado por um mês que ainda não saiu do lugar
+//   conferir   — não há data guardada; quem escolhe o mês é a pessoa
+function planejarConserto(diag){
+  const plano = {};
+  const ocupado = new Set(diag.map(d => d.id));
 
-  if(noLugarCerto) return {estado:'manter', motivo:'a data do relatório confere com o mês'};
+  // ── Passo 1: o que cada mês é, olhando só pra ele ──
+  diag.forEach(d=>{
+    const o = refParseId(d.id);
+    const per = d.pericia;
+    const temData = !!(per && per.porData);
 
-  // Alguma cópia deste mesmo relatório já está guardada no mês certo dela?
-  const gemeosOk = (d.gemeos || []).filter(idIrmao=>{
-    const irmao = todos.find(x=>x.id === idIrmao);
-    return irmao && irmao.pericia && irmao.pericia.porData && irmao.pericia.bateComRotulo;
+    if(temData && per.bateComRotulo){
+      plano[d.id] = {estado:'manter', motivo:'a data do relatório confere com o mês'};
+      return;
+    }
+
+    const gemeoCerto = (d.gemeos || []).find(idIrmao=>{
+      const irmao = diag.find(x=>x.id === idIrmao);
+      return irmao && irmao.pericia && irmao.pericia.porData && irmao.pericia.bateComRotulo;
+    });
+    if(gemeoCerto){
+      const q = refParseId(gemeoCerto);
+      plano[d.id] = {estado:'limpar', ondeEstaOCerto: refRotulo(q.ano, q.mes),
+        motivo:`mesmos itens, vendas e valor de ${refRotulo(q.ano, q.mes)}, que já está no mês certo`};
+      return;
+    }
+
+    if(temData){
+      plano[d.id] = {estado:'pendente', para:{ano:per.melhor.ano, mes:per.melhor.mes},
+        motivo:`a data do relatório diz ${refRotulo(per.melhor.ano, per.melhor.mes)}`};
+      return;
+    }
+
+    plano[d.id] = {estado:'conferir', motivo:(per && per.motivo) || 'sem data guardada no relatório'};
   });
-  if(gemeosOk.length){
-    const q = refParseId(gemeosOk[0]);
-    return {estado:'limpar', ondeEstaOCerto: refRotulo(q.ano, q.mes),
-            motivo:`mesmos itens, vendas e valor de ${refRotulo(q.ano, q.mes)}, que já está no mês certo`};
+
+  // ── Passo 2: quem consegue mover, em cadeia ──
+  // Limpar libera o lugar; mover também. Repete até não liberar mais nada.
+  diag.forEach(d=>{ if(plano[d.id].estado === 'limpar') ocupado.delete(d.id); });
+
+  let mudou = true, voltas = 0;
+  while(mudou && voltas < 24){
+    mudou = false; voltas++;
+    diag.forEach(d=>{
+      const pl = plano[d.id];
+      if(pl.estado !== 'pendente') return;
+      const idDestino = refMontaId(pl.para.ano, pl.para.mes);
+      if(ocupado.has(idDestino)) return;        // ainda ocupado; tenta na próxima volta
+      pl.estado = 'mover';
+      ocupado.delete(d.id);                      // a origem fica livre pro próximo da fila
+      ocupado.add(idDestino);
+      mudou = true;
+    });
   }
 
-  if(temDataReal){
-    return {estado:'mover', para:{ano:per.melhor.ano, mes:per.melhor.mes},
-            motivo:`a data do relatório diz ${refRotulo(per.melhor.ano, per.melhor.mes)}`};
-  }
-  return {estado:'conferir', motivo: (per && per.motivo) || 'sem data guardada no relatório'};
+  // ── Passo 3: quem sobrou pendente, por quê ──
+  diag.forEach(d=>{
+    const pl = plano[d.id];
+    if(pl.estado !== 'pendente') return;
+    const idDestino = refMontaId(pl.para.ano, pl.para.mes);
+    const quemEsta = diag.find(x=>x.id === idDestino);
+    const estadoDeLa = quemEsta ? plano[quemEsta.id].estado : null;
+
+    if(estadoDeLa === 'manter'){
+      pl.estado = 'conflito';
+      pl.motivo = `este relatório diz ser de ${refRotulo(pl.para.ano, pl.para.mes)}, mas lá já existe outro relatório, com números diferentes, que também confere com aquele mês. Confira no sistema de vendas qual dos dois é o de ${refRotulo(pl.para.ano, pl.para.mes)}.`;
+    } else {
+      pl.estado = 'aguardando';
+      pl.motivo = `esperando ${refRotulo(refParseId(idDestino).ano, refParseId(idDestino).mes)} sair do lugar primeiro`;
+    }
+  });
+
+  return plano;
 }
 
 // Apaga uma cópia duplicada. Só a cópia — o original, que está no mês certo,
@@ -6154,18 +6223,21 @@ function renderModalRef(){
     return;
   }
 
-  const conta = {manter:0, limpar:0, mover:0, conferir:0};
+  const plano = planejarConserto(diag);
+  const conta = {manter:0, limpar:0, mover:0, conflito:0, aguardando:0, conferir:0};
   const linhas = diag.map(d=>{
     const o = refParseId(d.id);
     const per = d.pericia;
-    const c = classificarMes(d, diag);
+    const c = plano[d.id];
     conta[c.estado]++;
 
     const SELO = {
-      manter:  '<span class="ref-ok2">✓ MANTER</span>',
-      limpar:  '<span class="ref-mal">✗ LIMPAR — duplicata</span>',
-      mover:   '<span class="ref-pista">→ MOVER</span>',
-      conferir:'<span class="ref-dunno">? CONFERIR</span>'
+      manter:    '<span class="ref-ok2">✓ MANTER</span>',
+      limpar:    '<span class="ref-mal">✗ LIMPAR — duplicata</span>',
+      mover:     '<span class="ref-pista">→ MOVER</span>',
+      conflito:  '<span class="ref-mal">! CONFLITO</span>',
+      aguardando:'<span class="ref-dunno">⏳ AGUARDANDO</span>',
+      conferir:  '<span class="ref-dunno">? CONFERIR</span>'
     };
     let situacao = `${SELO[c.estado]}<div class="ref-fonte">${escHtml(c.motivo)}</div>`;
 
@@ -6175,7 +6247,6 @@ function renderModalRef(){
     } else if(c.estado === 'mover'){
       acao = `<button class="cat-rm" onclick="reencaixarMes('${d.id}', ${c.para.ano}, ${c.para.mes})">Mover para ${refRotulo(c.para.ano, c.para.mes)}</button>`;
     } else if(c.estado === 'conferir'){
-      // Sem data confiável: a pessoa escolhe o destino na mão
       const sugerido = (per && per.conclusivo) ? refMontaId(per.melhor.ano, per.melhor.mes) : '';
       const opcoes = [-3,-2,-1,1,2,3].map(delta=>{
         const dt = new Date(o.ano, o.mes + delta, 1);
@@ -6202,13 +6273,22 @@ function renderModalRef(){
   }).join('');
 
   const partes = [];
-  if(conta.manter)   partes.push(`${conta.manter} no lugar certo`);
-  if(conta.mover)    partes.push(`<strong>${conta.mover} para mover</strong>`);
-  if(conta.limpar)   partes.push(`<strong>${conta.limpar} duplicata${conta.limpar>1?'s':''} para limpar</strong>`);
-  if(conta.conferir) partes.push(`${conta.conferir} sem data — conferir na mão`);
-  const resumo = (conta.mover || conta.limpar || conta.conferir)
-    ? `<div class="ref-alerta">${partes.join(' · ')}. Comece pelos mais antigos: mover um mês libera o destino do seguinte.</div>`
-    : `<div class="ref-alerta ok">Todos os fechamentos estão no mês de referência certo.</div>`;
+  if(conta.manter)     partes.push(`${conta.manter} no lugar certo`);
+  if(conta.mover)      partes.push(`<strong>${conta.mover} para mover</strong>`);
+  if(conta.limpar)     partes.push(`<strong>${conta.limpar} duplicata${conta.limpar>1?'s':''} para limpar</strong>`);
+  if(conta.conflito)   partes.push(`<strong>${conta.conflito} em conflito</strong>`);
+  if(conta.aguardando) partes.push(`${conta.aguardando} esperando a vez`);
+  if(conta.conferir)   partes.push(`${conta.conferir} sem data — conferir na mão`);
+
+  let resumo;
+  if(conta.conflito){
+    resumo = `<div class="ref-alerta">${partes.join(' · ')}.<br>
+      <strong>O conflito trava a fila.</strong> Dois relatórios diferentes dizem ser do mesmo mês, e eu não tenho como saber qual é o certo: os números não batem entre eles, então não é cópia. Abra os dois no sistema de vendas, veja qual bate com o mês, e apague o outro por aqui. Só depois disso os meses de baixo conseguem andar.</div>`;
+  } else if(conta.mover || conta.limpar || conta.conferir){
+    resumo = `<div class="ref-alerta">${partes.join(' · ')}. Comece de cima para baixo: cada mês que sai libera o lugar do seguinte.</div>`;
+  } else {
+    resumo = `<div class="ref-alerta ok">Todos os fechamentos estão no mês de referência certo.</div>`;
+  }
 
   corpo.innerHTML = `
     <div class="ref-passo">

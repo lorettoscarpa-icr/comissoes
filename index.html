@@ -1827,7 +1827,7 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
 
 <!-- ═════════════ TABS DE NAVEGAÇÃO ═════════════ -->
 <div class="tabs-bar" id="tabs-bar">
-  <button class="tab-btn ativa" data-tab="mensal" onclick="trocarTab('mensal')">Mensal</button>
+  <button class="tab-btn ativa" data-tab="mensal" onclick="trocarTab('mensal')">Comissões</button>
   <button class="tab-btn" data-tab="pag" onclick="trocarTab('pag')">Folha Realizada</button>
   <button class="tab-btn" data-tab="comp" onclick="trocarTab('comp')">Comparativo</button>
   <button class="tab-btn" data-tab="hist" onclick="trocarTab('hist')">Histórico</button>
@@ -1836,9 +1836,9 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
 <main id="sec-mensal">
   <div id="aviso-ref-area" style="display:none;"></div>
   <div class="titulo-pag">
-    <h1>Fechamento Mensal</h1>
+    <h1>Comissões</h1>
     <div class="linha"></div>
-    <p>Cálculo Automático de Comissões</p>
+    <p>Fechamento das Vendedoras</p>
   </div>
 
   <!-- ═════ UPLOAD ═════ -->
@@ -1956,19 +1956,6 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
     </div>
   </div>
 
-  <!-- ═════ EQUIPE FIXA (salário + vale + horas extras) ═════ -->
-  <div id="equipe-fixa-area" style="margin-top:36px;">
-    <div class="slbl">Equipe Fixa <span class="slbl-tag">Salário · Não Comissionados</span></div>
-    <div class="fx-resumo">
-      <div>
-        <div class="lbl">Total a Pagar — Equipe Fixa</div>
-        <div class="val" id="fx-total-folha">R$ 0,00</div>
-        <div class="sub">salários − adiantamentos · horas extras calculadas pela contabilidade</div>
-      </div>
-    </div>
-    <div class="fx-grid" id="fx-grid"></div>
-  </div>
-
   <!-- ═════ EXPORTAÇÃO (após preencher vendedoras + equipe fixa) ═════ -->
   <div id="export-area" style="display:none;margin-top:36px;">
     <div class="slbl">Exportar para Contabilidade</div>
@@ -2018,7 +2005,7 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
   <div class="titulo-pag">
     <h1>Folha Realizada</h1>
     <div class="linha"></div>
-    <p>Recibos da Contabilidade — o que foi realmente pago</p>
+    <p>Folha Completa — vendedoras, equipe fixa e o que foi pago</p>
   </div>
 
   <!-- ═════ IMPORTAR RECIBOS DA CONTABILIDADE ═════ -->
@@ -2037,6 +2024,19 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
     </div>
   </div>
   <div class="log-wrap" id="pag-log" style="display:none;"><div class="log-tit">Leitura do PDF</div><div id="pag-log-body"></div></div>
+
+  <!-- ═════ EQUIPE FIXA — salário, bônus e adiantamento dos não comissionados ═════ -->
+  <div id="equipe-fixa-area" style="margin-bottom:36px;">
+    <div class="slbl">Equipe Fixa <span class="slbl-tag">Salário · Não Comissionados</span></div>
+    <div class="fx-resumo">
+      <div>
+        <div class="lbl">Total a Pagar — Equipe Fixa</div>
+        <div class="val" id="fx-total-folha">R$ 0,00</div>
+        <div class="sub">salário + bônus − adiantamento · horas extras calculadas pela contabilidade</div>
+      </div>
+    </div>
+    <div class="fx-grid" id="fx-grid"></div>
+  </div>
 
   <div id="pag-content"></div>
 </main>
@@ -5284,7 +5284,7 @@ function carregarMesAtual(){
     renderMetasResumo(); // Metas do mês continuam
     limparUploadUI();
   }
-  // Equipe fixa é independente do arquivo do Kigi — sempre renderiza pro mês atual
+  // Equipe fixa vive na Folha Realizada e independe do arquivo do Kigi
   renderEquipeFixa();
   renderPagamentos();
 }

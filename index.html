@@ -1238,31 +1238,12 @@ main{max-width:1200px;margin:0 auto;padding:36px 24px 80px;}
 .ref-prova-nota{display:block;font-style:italic;margin-top:3px;opacity:.75;}
 .ref-pista{color:#e8c07a;}
 .ref-fonte{font-size:9px;color:var(--cr3);font-style:italic;margin-top:3px;letter-spacing:.3px;}
-/* Lista de Bônus puxada da Central de Metas */
-.bonus-card{
-  border:1px solid var(--oud);background:rgba(201,168,76,.05);
-  padding:20px 22px;margin-bottom:24px;
+/* Bônus dentro do card da Folha Realizada — usa as classes do próprio card */
+.pag-bonus{border-top:1px solid var(--oud2);margin-top:14px;padding-top:2px;}
+.pag-aviso{
+  border-left:3px solid #d4b45a;background:rgba(212,180,90,.08);
+  padding:11px 14px;font-size:11px;color:var(--ou2);line-height:1.6;margin-bottom:18px;
 }
-.bonus-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
-.bonus-tit{
-  font-family:'Cormorant Garamond',serif;font-size:20px;color:var(--ou);
-  font-weight:300;letter-spacing:2px;text-transform:uppercase;
-}
-.bonus-sub{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--cr3);margin-top:4px;}
-.bonus-total{font-family:'Cormorant Garamond',serif;font-size:28px;color:#6dbf6d;font-weight:300;}
-.bonus-tab{width:100%;border-collapse:collapse;font-size:12px;}
-.bonus-tab th{
-  text-align:left;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
-  color:var(--cr3);padding:7px 8px;border-bottom:1px solid var(--oud2);font-weight:600;
-}
-.bonus-tab td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.04);color:var(--cr2);}
-.bonus-tab .tnum{text-align:right;}
-.bonus-det td{font-size:10px;color:var(--cr3);padding:2px 8px 6px 20px;border-bottom:none;font-style:italic;}
-.bonus-aviso{
-  border-left:3px solid #d4b45a;background:rgba(212,180,90,.1);
-  padding:10px 13px;font-size:11px;color:var(--ou2);line-height:1.6;margin-bottom:12px;
-}
-.bonus-vazio{text-align:center;padding:26px 16px;color:var(--cr3);font-size:12px;line-height:1.8;}
 .fx-origem{color:#a8d4a8;font-size:8px;letter-spacing:1px;}
 .fx-origem-nota{font-size:9px;color:var(--cr3);font-style:italic;margin-top:4px;}
 .ref-pista-lin{font-size:10px;color:var(--cr3);margin-top:5px;}
@@ -4777,64 +4758,61 @@ async function atualizarBonusDoMes(){
   }
 }
 
-function blocoBonusHTML(){
+// A lista de bônus entra DENTRO do card de cada vendedora na Folha Realizada,
+// usando as mesmas classes do resto do card (pag-sec-tit, pag-row, pag-sub) —
+// mesma fonte, mesmo espaçamento, mesma cara.
+
+// Acha o bônus de uma pessoa. O nome vem do app de Metas ("Ana"), o card usa o
+// nome de exibição da folha — casa pelo nome inteiro ou pelo primeiro nome.
+function bonusDaPessoa(nome){
   const b = lerBonusApurado();
-  const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
+  if(!b || !Array.isArray(b.premiadas)) return null;
+  const alvo = normalizar(nome);
+  if(!alvo) return null;
+  return b.premiadas.find(r=>{
+    const n = normalizar(r.nome);
+    return n === alvo || n.startsWith(alvo + ' ') || alvo.startsWith(n + ' ');
+  }) || null;
+}
 
-  if(!b){
-    return `<div class="bonus-card">
-      <div class="bonus-head">
-        <div><div class="bonus-tit">Lista de Bônus — ${mesAno}</div>
-        <div class="bonus-sub">Quem ganhou e quanto pagar</div></div>
-      </div>
-      <div class="bonus-vazio">Nenhuma lista de bônus para ${mesAno} ainda.<br>
-        Ela chega sozinha da Central de Metas assim que as vendedoras lançarem vendas no mês.</div>
-    </div>`;
-  }
+// Bloco de bônus que vai dentro do card, embaixo de Vencimentos/Descontos
+function blocoBonusNoCard(nome){
+  const r = bonusDaPessoa(nome);
+  if(!r || !(r.total > 0)) return '';
+  const linhas = (r.linhas || [])
+    .map(l=>`<div class="pag-row"><span class="d">${escHtml(l.desc)}</span><span class="v">${fmtBRL(l.valor)}</span></div>`)
+    .join('');
+  return `
+        <div class="pag-bonus">
+          <div class="pag-sec-tit">Bônus de Meta · Caju</div>
+          ${linhas}
+          <div class="pag-sub"><span>Total Bônus</span><span class="v" style="color:#d4b45a;">${fmtBRL(r.total)}</span></div>
+        </div>`;
+}
 
-  const premiadas = b.premiadas || [];
-  const emitido = b.emitidoEm ? new Date(b.emitidoEm).toLocaleDateString('pt-BR') : '';
-
-  // Se o mês já acabou, o número é o fechado — não importa se a última
-  // publicação saiu com o mês ainda aberto.
+// Total de bônus do mês, ao lado do total líquido pago
+function resumoBonusHTML(){
+  const b = lerBonusApurado();
+  if(!b) return '';
+  const premiadas = (b.premiadas || []).filter(r=>r.total > 0);
   const fimDoMes = new Date(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth() + 1, 0, 23, 59, 59);
-  const mesJaFechou = new Date() > fimDoMes;
-  const ehPrevia = !mesJaFechou;
+  const ehPrevia = new Date() <= fimDoMes;
+  const emitido = b.emitidoEm ? new Date(b.emitidoEm).toLocaleDateString('pt-BR') : '';
+  return `
+      <div style="text-align:right;">
+        <div class="lbl">Bônus de Meta — Caju</div>
+        <div class="val" style="color:#d4b45a;">${fmtBRL(b.total || 0)}</div>
+        <div class="sub">${premiadas.length} ${premiadas.length===1?'vendedora':'vendedoras'} · ${ehPrevia ? 'prévia do mês em andamento' : 'mês fechado'}${emitido ? ` · ${emitido}` : ''}</div>
+      </div>`;
+}
 
-  const linhas = premiadas.length
-    ? premiadas.map(r=>`
-        <tr>
-          <td>${escHtml(r.nome)}</td>
-          <td class="tnum">${fmtInt((r.linhas||[]).length)}</td>
-          <td class="tnum">${fmtBRL(r.total)}</td>
-        </tr>
-        ${(r.linhas||[]).map(l=>`<tr class="bonus-det"><td colspan="3">${escHtml(l.desc)} — ${fmtBRL(l.valor)}</td></tr>`).join('')}`).join('')
-    : `<tr><td colspan="3" style="text-align:center;color:var(--cr3);font-style:italic;">Nenhum bônus a pagar neste mês.</td></tr>`;
-
-  const avisos = [];
-  if(ehPrevia){
-    avisos.push('<div class="bonus-aviso"><strong>Mês ainda em andamento — isto é uma prévia.</strong> O número se atualiza sozinho conforme as vendedoras lançam vendas, e só vira definitivo depois do último dia do mês. Não pague por aqui ainda.</div>');
-  } else if(b.emAndamento){
-    avisos.push(`<div class="bonus-aviso">O mês já fechou. Esta lista foi atualizada pela última vez em <strong>${emitido}</strong>, antes do fim do mês — se alguma vendedora lançou venda depois disso, basta abrir a Central de Metas em ${mesAno} para o número se atualizar aqui.</div>`);
-  }
-  (b.empates || []).forEach(e=>{
-    avisos.push(`<div class="bonus-aviso">Empate em <strong>${escHtml(e.nome)}</strong>: ${(e.quem||[]).map(escHtml).join(' e ')} — ${fmtBRL(e.valor)} dividido em ${fmtBRL(e.cota)} para cada.</div>`);
-  });
-
-  return `<div class="bonus-card">
-    <div class="bonus-head">
-      <div>
-        <div class="bonus-tit">Lista de Bônus — ${mesAno}</div>
-        <div class="bonus-sub">Referência ${mesAno} · ${ehPrevia ? 'prévia' : 'mês fechado'}${emitido ? ` · atualizada em ${emitido}` : ''}</div>
-      </div>
-      <div class="bonus-total">${fmtBRL(b.total || 0)}</div>
-    </div>
-    ${avisos.join('')}
-    <table class="bonus-tab">
-      <thead><tr><th>Vendedora</th><th class="tnum">Itens</th><th class="tnum">A pagar</th></tr></thead>
-      <tbody>${linhas}</tbody>
-    </table>
-  </div>`;
+// Aviso de prévia, no mesmo tom dos outros avisos da tela
+function avisoBonusHTML(){
+  const b = lerBonusApurado();
+  if(!b) return '';
+  const fimDoMes = new Date(DATA_ATUAL.getFullYear(), DATA_ATUAL.getMonth() + 1, 0, 23, 59, 59);
+  if(new Date() > fimDoMes) return '';
+  return `<div class="pag-aviso">O mês ainda está em andamento — os valores de bônus são prévia e mudam conforme as vendedoras lançam vendas. Não pague por aqui ainda.</div>`;
 }
 
 function renderPagamentos(){
@@ -4850,8 +4828,7 @@ function renderPagamentos(){
   });
   const mesAno = `${MESES[DATA_ATUAL.getMonth()]}/${DATA_ATUAL.getFullYear()}`;
   if(!nomes.length){
-    cont.innerHTML = blocoBonusHTML() +
-      `<div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
+    cont.innerHTML = `<div class="empty"><strong>Nenhum recibo importado para ${mesAno}</strong><p>Importe o PDF de recibos da contabilidade para registrar<br>o que foi realmente pago a cada colaborador.</p></div>`;
     return;
   }
   let totV=0,totD=0,totL=0;
@@ -4889,6 +4866,7 @@ function renderPagamentos(){
             <div class="pag-sub"><span>Total Descontos</span><span class="v" style="color:#e09e9a;">${fmtBRL(r.descontos)}</span></div>
           </div>
         </div>
+        ${blocoBonusNoCard(n)}
       </div>`;
   }
 
@@ -4910,14 +4888,16 @@ function renderPagamentos(){
     grupos += `<div class="slbl">Sócios</div><div class="pag-grid">${socios.map(cardHTML).join('')}</div>`;
   }
 
-  cont.innerHTML = blocoBonusHTML() + `
+  cont.innerHTML = `
     <div class="fx-resumo">
       <div>
         <div class="lbl">Total Líquido Pago — ${mesAno}</div>
         <div class="val">${fmtBRL(totL)}</div>
         <div class="sub">${nomes.length} colaboradores · vencimentos ${fmtBRL(totV)} − descontos ${fmtBRL(totD)}</div>
       </div>
+      ${resumoBonusHTML()}
     </div>
+    ${avisoBonusHTML()}
     ${grupos}
     <div class="exp-wrap">
       <div class="exp-tit">Holerite Geral</div>

@@ -5989,18 +5989,21 @@ function reencaixarMes(idOrigem, anoDestino, mesDestino){
     return;
   }
 
-  // O destino não pode ter nada — nunca sobrescrever fechamento existente
-  const ocupado = COLECOES_MENSAIS
-    .filter(col=>{ const d = fsLer(col.id, idDestino); return d && Object.keys(d).length; })
-    .map(col=>col.rot);
-  if(ocupado.length){
-    alert(`Não mexi em nada.\n\n${refRotulo(anoDestino, mesDestino)} já tem dados guardados: ${ocupado.join(', ')}.\n\nMova primeiro esse mês para o lugar dele (comece sempre pelo mês mais antigo da lista).`);
-    return;
-  }
-
   const oQueVai = COLECOES_MENSAIS
     .filter(col=>{ const d = fsLer(col.id, idOrigem); return d && Object.keys(d).length; });
   if(!oQueVai.length){ toast('Não há nada para mover', 'am'); return; }
+
+  // O choque é por coleção, não pelo mês inteiro: se o destino tem folha
+  // realizada mas não tem fechamento, mover só o fechamento pra lá é seguro.
+  // Nunca sobrescreve nada que já exista.
+  const choca = oQueVai.filter(col=>{
+    const d = fsLer(col.id, idDestino);
+    return d && Object.keys(d).length;
+  }).map(col=>col.rot);
+  if(choca.length){
+    alert(`Não mexi em nada.\n\n${refRotulo(anoDestino, mesDestino)} já tem: ${choca.join(', ')}.\n\nResolva esse mês primeiro — comece sempre pelo mais antigo da lista.`);
+    return;
+  }
 
   const ok = confirm(
     `Mover de ${refRotulo(origem.ano, origem.mes).toUpperCase()} para ${refRotulo(anoDestino, mesDestino).toUpperCase()}?\n\n` +
@@ -6110,9 +6113,21 @@ function moverParaEscolhido(idOrigem){
 //                olhar e decidir qual dos dois é o de verdade.
 //   aguardando — o destino está ocupado por um mês que ainda não saiu do lugar
 //   conferir   — não há data guardada; quem escolhe o mês é a pessoa
+// Quais coleções um mês tem dados
+function colecoesCom(id){
+  return COLECOES_MENSAIS.filter(col=>{
+    const d = fsLer(col.id, id);
+    return d && Object.keys(d).length;
+  }).map(col=>col.id);
+}
+
 function planejarConserto(diag){
   const plano = {};
-  const ocupado = new Set(diag.map(d => d.id));
+  // Ocupação por COLEÇÃO: mês com folha realizada mas sem fechamento ainda
+  // aceita receber um fechamento.
+  const ocupado = {};
+  COLECOES_MENSAIS.forEach(col => ocupado[col.id] = new Set());
+  diag.forEach(d => colecoesCom(d.id).forEach(cid => ocupado[cid].add(d.id)));
 
   // ── Passo 1: o que cada mês é, olhando só pra ele ──
   diag.forEach(d=>{
@@ -6147,7 +6162,8 @@ function planejarConserto(diag){
 
   // ── Passo 2: quem consegue mover, em cadeia ──
   // Limpar libera o lugar; mover também. Repete até não liberar mais nada.
-  diag.forEach(d=>{ if(plano[d.id].estado === 'limpar') ocupado.delete(d.id); });
+  // Limpar solta só o fechamento — o resto do mês continua onde está
+  diag.forEach(d=>{ if(plano[d.id].estado === 'limpar') ocupado['fechamentos'].delete(d.id); });
 
   let mudou = true, voltas = 0;
   while(mudou && voltas < 24){
@@ -6156,10 +6172,10 @@ function planejarConserto(diag){
       const pl = plano[d.id];
       if(pl.estado !== 'pendente') return;
       const idDestino = refMontaId(pl.para.ano, pl.para.mes);
-      if(ocupado.has(idDestino)) return;        // ainda ocupado; tenta na próxima volta
+      const vai = colecoesCom(d.id);
+      if(vai.some(cid => ocupado[cid].has(idDestino))) return;  // choca; tenta na próxima volta
       pl.estado = 'mover';
-      ocupado.delete(d.id);                      // a origem fica livre pro próximo da fila
-      ocupado.add(idDestino);
+      vai.forEach(cid=>{ ocupado[cid].delete(d.id); ocupado[cid].add(idDestino); });
       mudou = true;
     });
   }
@@ -6171,6 +6187,7 @@ function planejarConserto(diag){
     const idDestino = refMontaId(pl.para.ano, pl.para.mes);
     const quemEsta = diag.find(x=>x.id === idDestino);
     const estadoDeLa = quemEsta ? plano[quemEsta.id].estado : null;
+    const chocaCom = colecoesCom(d.id).filter(cid => ocupado[cid].has(idDestino));
 
     if(estadoDeLa === 'manter'){
       pl.estado = 'conflito';
@@ -6186,31 +6203,71 @@ function planejarConserto(diag){
 
 // Apaga uma cópia duplicada. Só a cópia — o original, que está no mês certo,
 // não é tocado. Exige backup e confirmação, como qualquer mudança aqui.
-function limparMesDuplicado(idOrigem, ondeEstaOCerto){
+// Apaga o que está guardado num mês. Dois usos, com avisos diferentes:
+//   duplicata — existe cópia idêntica no mês certo, então nada se perde
+//   conflito  — são números ÚNICOS: apagar aqui perde o dado, e só o backup
+//               traz de volta. O aviso precisa dizer isso com todas as letras.
+function apagarMesGuardado(idOrigem, contexto, ehDuplicata){
   const o = refParseId(idOrigem);
   if(!o) return;
   if(!REF_BACKUP_FEITO){ toast('Baixe o backup antes (passo 2)', 'er'); return; }
 
+  // Apagar aqui é sobre o RELATÓRIO DE VENDAS errado — não sobre o mês.
+  // A folha realizada, os adiantamentos e as horas daquele mês são do mês do
+  // calendário e continuam valendo, então não saem junto.
+  const ALVO = ['fechamentos'];
   const oQueSai = COLECOES_MENSAIS.filter(col=>{
+    if(!ALVO.includes(col.id)) return false;
     const dd = fsLer(col.id, idOrigem);
     return dd && Object.keys(dd).length;
   });
-  if(!oQueSai.length){ toast('Não há nada para limpar', 'am'); return; }
+  const oQueFica = COLECOES_MENSAIS.filter(col=>{
+    if(ALVO.includes(col.id)) return false;
+    const dd = fsLer(col.id, idOrigem);
+    return dd && Object.keys(dd).length;
+  });
+  if(!oQueSai.length){ toast('Não há nada para apagar', 'am'); return; }
 
-  const ok = confirm(
-    `Apagar o que está guardado em ${refRotulo(o.ano, o.mes).toUpperCase()}?\n\n` +
-    `É cópia do relatório que já está em ${ondeEstaOCerto} — mesmos itens, vendas e valor.\n` +
-    `${ondeEstaOCerto} NÃO será tocado.\n\n` +
-    `Sai junto: ${oQueSai.map(c=>c.rot).join(', ')}.\n\n` +
-    `Dá pra voltar com o backup que você baixou.`
-  );
-  if(!ok) return;
+  const rotulo = refRotulo(o.ano, o.mes).toUpperCase();
+  let texto;
+  if(ehDuplicata){
+    texto = `Apagar o que está guardado em ${rotulo}?\n\n` +
+      `É cópia do relatório que já está em ${contexto} — mesmos itens, vendas e valor.\n` +
+      `${contexto} NÃO será tocado.\n\n` +
+      `Sai só o fechamento de vendas.` +
+      (oQueFica.length ? ` Continua em ${refRotulo(o.ano, o.mes)}: ${oQueFica.map(c=>c.rot).join(', ')}.` : '') +
+      `\n\nDá pra voltar com o backup que você baixou.`;
+  } else {
+    const d = fsLer('fechamentos', idOrigem) || {};
+    texto = `APAGAR ${rotulo} DE VEZ?\n\n` +
+      `ATENÇÃO: este NÃO é um relatório repetido. Os números dele são únicos:\n` +
+      `${fmtInt(d.totalGeralPecas||0)} itens · ${fmtInt(d.totalVendas||0)} vendas · ${fmtBRL(d.totalGeralValor||0)}\n\n` +
+      `Apagando, esse fechamento some do sistema. Só o backup que você baixou traz de volta.\n\n` +
+      `Só confirme depois de ter aberto o sistema de vendas e conferido que o relatório certo é o outro.\n\n` +
+      `Sai SÓ o fechamento de vendas.` +
+      (oQueFica.length ? ` A ${oQueFica.map(c=>c.rot.toLowerCase()).join(', a ')} de ${refRotulo(o.ano, o.mes)} continua${oQueFica.length>1?'m':''} onde está${oQueFica.length>1?'ão':''}.` : '');
+  }
+  if(!confirm(texto)) return;
+
+  // Conflito apaga dado único: pede uma segunda confirmação, escrita
+  if(!ehDuplicata){
+    const resp = prompt(`Para confirmar, escreva APAGAR (em maiúsculas):`, '');
+    if(String(resp || '').trim().toUpperCase() !== 'APAGAR'){
+      toast('Não apaguei nada', 'am');
+      return;
+    }
+  }
 
   oQueSai.forEach(col => fsApagar(col.id, idOrigem));
-  toast(`${refRotulo(o.ano, o.mes)} limpo`, 'ok');
+  toast(`${refRotulo(o.ano, o.mes)} apagado`, 'ok');
   renderModalRef();
   atualizarMesUI();
   carregarMesAtual();
+}
+
+// Mantida pelo nome antigo, que a tabela já usa
+function limparMesDuplicado(idOrigem, ondeEstaOCerto){
+  apagarMesGuardado(idOrigem, ondeEstaOCerto, true);
 }
 
 function renderModalRef(){
@@ -6242,7 +6299,10 @@ function renderModalRef(){
     let situacao = `${SELO[c.estado]}<div class="ref-fonte">${escHtml(c.motivo)}</div>`;
 
     let acao = '<span class="ref-dunno">—</span>';
-    if(c.estado === 'limpar'){
+    if(c.estado === 'conflito'){
+      // Depois de conferir no sistema de vendas, dá pra apagar o que sobrou
+      acao = `<button class="cat-rm" onclick="apagarMesGuardado('${d.id}', '', false)">Apagar este fechamento</button>`;
+    } else if(c.estado === 'limpar'){
       acao = `<button class="cat-rm" onclick="limparMesDuplicado('${d.id}', '${escHtml(c.ondeEstaOCerto)}')">Limpar este mês</button>`;
     } else if(c.estado === 'mover'){
       acao = `<button class="cat-rm" onclick="reencaixarMes('${d.id}', ${c.para.ano}, ${c.para.mes})">Mover para ${refRotulo(c.para.ano, c.para.mes)}</button>`;

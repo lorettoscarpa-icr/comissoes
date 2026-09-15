@@ -2042,19 +2042,6 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
   </div>
   <div class="log-wrap" id="pag-log" style="display:none;"><div class="log-tit">Leitura do PDF</div><div id="pag-log-body"></div></div>
 
-  <!-- ═════ EQUIPE FIXA — salário, bônus e adiantamento dos não comissionados ═════ -->
-  <div id="equipe-fixa-area" style="margin-bottom:36px;">
-    <div class="slbl">Equipe Fixa <span class="slbl-tag">Salário · Não Comissionados</span></div>
-    <div class="fx-resumo">
-      <div>
-        <div class="lbl">Total a Pagar — Equipe Fixa</div>
-        <div class="val" id="fx-total-folha">R$ 0,00</div>
-        <div class="sub">salário + bônus − adiantamento · horas extras calculadas pela contabilidade</div>
-      </div>
-    </div>
-    <div class="fx-grid" id="fx-grid"></div>
-  </div>
-
   <div id="pag-content"></div>
 </main>
 
@@ -4424,18 +4411,21 @@ function totalFuncFixo(nome){
 function atualizarFuncFixo(nome, campo, valorRaw){
   const v = parseNumBR(valorRaw);
   salvarFuncFixo(nome, campo, v);
-  // Atualiza o total do card sem re-renderizar (não perde o foco do input)
-  if(campo === 'salario'){
+  // Atualiza o total do card sem re-renderizar (não perde o foco do input).
+  // Salário e bônus entram na conta; horas extras não (contabilidade calcula).
+  if(campo === 'salario' || campo === 'bonus'){
     const el = document.getElementById(`fx-total-${nome}`);
     if(el) el.textContent = fmtBRL(totalFuncFixo(nome));
   }
   atualizarTotalFolhaFixa();
 }
 function atualizarTotalFolhaFixa(){
+  // O total da equipe deixou de ter bloco próprio; cada card mostra o seu.
+  const el = document.getElementById('fx-total-folha');
+  if(!el) return;
   let total = 0;
   EQUIPE_FIXA.forEach(e => { total += totalFuncFixo(e.nome); });
-  const el = document.getElementById('fx-total-folha');
-  if(el) el.textContent = fmtBRL(total);
+  el.textContent = fmtBRL(total);
 }
 
 // ── ADIANTAMENTO (para TODOS os colaboradores — Larissa preenche; desconta do total) ──
@@ -4474,87 +4464,11 @@ function atualizarAdiantamento(nome, valorRaw){
     atualizarTotalFolhaFixa();
   }
 }
+// A equipe fixa agora vive dentro dos cards da Folha Realizada — não há mais
+// grid próprio. Mantida pelo nome porque a importação de recibos e a troca de
+// mês chamam ela.
 function renderEquipeFixa(){
-  const grid = document.getElementById('fx-grid');
-  if(!grid) return;
-  grid.innerHTML = '';
-
-  EQUIPE_FIXA.forEach(e => {
-    let f = lerFuncFixo(e.nome);
-
-    // Campo vazio e folha importada: puxa de lá e grava, pra entrar no total.
-    // Se já tem valor digitado, não encosta — quem digitou mandou mais.
-    let puxado = null;
-    if(!(f.salario > 0)){
-      puxado = salarioNaFolha(e.nome);
-      if(puxado){
-        salvarFuncFixo(e.nome, 'salario', puxado.valor);
-        f = lerFuncFixo(e.nome);
-      }
-    }
-    const adiant = lerAdiantamento(e.nome);
-    const card = document.createElement('div');
-    card.className = 'vend-card';
-    card.innerHTML = `
-      <div class="vend-head">
-        <div class="vend-av">${avatarHTML(e.nome)}</div>
-        <div class="vend-info">
-          <div class="vend-nome">${e.nome}</div>
-          <div class="fx-cargo">${e.cargo}</div>
-        </div>
-        <div class="vend-total">
-          <div class="lbl">Total a Pagar</div>
-          <div class="val" id="fx-total-${e.nome}">${fmtBRL(totalFuncFixo(e.nome))}</div>
-        </div>
-      </div>
-      <div class="fx-fields">
-        <div class="fx-field">
-          <div class="fx-flbl">Salário Fixo${puxado ? ' <span class="fx-origem">· da folha</span>' : ''}</div>
-          <div class="fx-input-wrap">
-            <span class="fx-prefixo">R$</span>
-            <input type="text" class="fx-input" inputmode="decimal"
-                   value="${f.salario > 0 ? formatarNum(f.salario) : ''}"
-                   placeholder="0,00"
-                   oninput="atualizarFuncFixo('${e.nome}', 'salario', this.value)">
-          </div>
-          ${puxado ? `<div class="fx-origem-nota">puxado do ${puxado.campo}</div>` : ''}
-        </div>
-        <div class="fx-field">
-          <div class="fx-flbl">Adiantamento <span class="fx-nota">(Larissa · desconta · em branco = não houve)</span></div>
-          <div class="fx-input-wrap">
-            <span class="fx-prefixo">R$</span>
-            <input type="text" class="fx-input" inputmode="decimal"
-                   value="${adiant > 0 ? formatarNum(adiant) : ''}"
-                   placeholder="0,00"
-                   oninput="atualizarAdiantamento('${e.nome}', this.value)">
-          </div>
-        </div>
-        <div class="fx-field">
-          <div class="fx-flbl">Bônus <span class="fx-nota">(esporádico · em branco = não houve)</span></div>
-          <div class="fx-input-wrap">
-            <span class="fx-prefixo">R$</span>
-            <input type="text" class="fx-input" inputmode="decimal"
-                   value="${f.bonus > 0 ? formatarNum(f.bonus) : ''}"
-                   placeholder="0,00"
-                   oninput="atualizarFuncFixo('${e.nome}', 'bonus', this.value)">
-          </div>
-        </div>
-        <div class="fx-field">
-          <div class="fx-flbl">Horas Extras <span class="fx-nota">(contabilidade calcula)</span></div>
-          <div class="fx-input-wrap">
-            <input type="text" class="fx-input" inputmode="decimal"
-                   value="${f.horas > 0 ? formatarNum(f.horas) : ''}"
-                   placeholder="0"
-                   oninput="atualizarFuncFixo('${e.nome}', 'horas', this.value)">
-            <span class="fx-unit">horas</span>
-          </div>
-        </div>
-      </div>
-    `;
-    grid.appendChild(card);
-  });
-
-  atualizarTotalFolhaFixa();
+  renderPagamentos();
 }
 
 // ═════════════════════════ PAGAMENTOS (recibos da contabilidade) ═════════════════════════
@@ -4767,11 +4681,9 @@ async function importarRecibosPDF(file){
     salvarPagamentos(obj);
     const rotulo = `${MESES[destino.mes]} ${destino.ano}`;
     body.innerHTML = `<div style="font-size:12px;color:#6dbf6d;padding:4px 0;">✓ ${regs.length} recibos lidos e gravados em <strong>${rotulo}</strong>: ${Object.keys(obj).join(', ')}</div>`;
+    // renderPagamentos já redesenha os cards da equipe fixa, e é nesse momento
+    // que o salário do Yuri, Edson e Gustavo é puxado do recibo.
     renderPagamentos();
-    // A folha acabou de chegar: é agora que o salário fixo do Yuri, Edson e
-    // Gustavo pode ser puxado dela. Sem isso, o campo só preencheria quando
-    // alguém trocasse de mês ou recarregasse a página.
-    renderEquipeFixa();
     toast(`${regs.length} recibos importados em ${rotulo}`, 'ok');
   }catch(e){
     console.error(e);
@@ -4843,6 +4755,69 @@ async function puxarTodosOsBonus(){
   }finally{
     if(btn){ btn.disabled = false; btn.textContent = '↻ Puxar lista de bônus'; }
   }
+}
+
+// Campos da equipe fixa dentro do card dela na Folha Realizada.
+// Antes isso vivia num bloco separado no topo, e os três apareciam duas
+// vezes na mesma tela: lá em cima e de novo no grupo Operação.
+function blocoEquipeFixaNoCard(nome){
+  if(!EQUIPE_FIXA.some(e => e.nome === nome)) return '';
+
+  // Campo vazio e folha importada: puxa o salário do recibo
+  let f = lerFuncFixo(nome);
+  let puxado = null;
+  if(!(f.salario > 0)){
+    puxado = salarioNaFolha(nome);
+    if(puxado){
+      salvarFuncFixo(nome, 'salario', puxado.valor);
+      f = lerFuncFixo(nome);
+    }
+  }
+  const adiant = lerAdiantamento(nome);
+
+  return `
+        <div class="pag-bonus">
+          <div class="pag-sec-tit">A pagar por fora da folha <span style="color:var(--cr3);font-weight:400;letter-spacing:.5px;text-transform:none;font-style:italic;">— salário + bônus − adiantamento</span></div>
+          <div class="fx-fields" style="margin-top:8px;">
+            <div class="fx-field">
+              <div class="fx-flbl">Salário Fixo${puxado ? ' <span class="fx-origem">· da folha</span>' : ''}</div>
+              <div class="fx-input-wrap">
+                <span class="fx-prefixo">R$</span>
+                <input type="text" class="fx-input" inputmode="decimal"
+                       value="${f.salario > 0 ? formatarNum(f.salario) : ''}" placeholder="0,00"
+                       oninput="atualizarFuncFixo('${nome}', 'salario', this.value)">
+              </div>
+            </div>
+            <div class="fx-field">
+              <div class="fx-flbl">Bônus <span class="fx-nota">(esporádico · em branco = não houve)</span></div>
+              <div class="fx-input-wrap">
+                <span class="fx-prefixo">R$</span>
+                <input type="text" class="fx-input" inputmode="decimal"
+                       value="${f.bonus > 0 ? formatarNum(f.bonus) : ''}" placeholder="0,00"
+                       oninput="atualizarFuncFixo('${nome}', 'bonus', this.value)">
+              </div>
+            </div>
+            <div class="fx-field">
+              <div class="fx-flbl">Adiantamento <span class="fx-nota">(desconta · em branco = não houve)</span></div>
+              <div class="fx-input-wrap">
+                <span class="fx-prefixo">R$</span>
+                <input type="text" class="fx-input" inputmode="decimal"
+                       value="${adiant > 0 ? formatarNum(adiant) : ''}" placeholder="0,00"
+                       oninput="atualizarAdiantamento('${nome}', this.value)">
+              </div>
+            </div>
+            <div class="fx-field">
+              <div class="fx-flbl">Horas Extras <span class="fx-nota">(contabilidade calcula)</span></div>
+              <div class="fx-input-wrap">
+                <input type="text" class="fx-input" inputmode="decimal"
+                       value="${f.horas > 0 ? formatarNum(f.horas) : ''}" placeholder="0"
+                       oninput="atualizarFuncFixo('${nome}', 'horas', this.value)">
+                <span class="fx-unit">horas</span>
+              </div>
+            </div>
+          </div>
+          <div class="pag-sub"><span>Total a pagar</span><span class="v" id="fx-total-${nome}" style="color:#d4b45a;">${fmtBRL(totalFuncFixo(nome))}</span></div>
+        </div>`;
 }
 
 // A lista de bônus entra DENTRO do card de cada vendedora na Folha Realizada,
@@ -4980,6 +4955,7 @@ function renderPagamentos(){
           </div>
         </div>
         ${blocoBonusNoCard(n)}
+        ${blocoEquipeFixaNoCard(n)}
       </div>`;
   }
 
@@ -5379,8 +5355,7 @@ function carregarMesAtual(){
     renderMetasResumo(); // Metas do mês continuam
     limparUploadUI();
   }
-  // Equipe fixa vive na Folha Realizada e independe do arquivo do Kigi
-  renderEquipeFixa();
+  // Equipe fixa vive dentro dos cards da Folha Realizada
   renderPagamentos();
 }
 function limparUploadUI(){

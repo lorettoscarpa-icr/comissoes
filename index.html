@@ -6024,26 +6024,31 @@ function reencaixarMes(idOrigem, anoDestino, mesDestino){
     return;
   }
 
-  const oQueVai = COLECOES_MENSAIS
+  const temNaOrigem = COLECOES_MENSAIS
     .filter(col=>{ const d = fsLer(col.id, idOrigem); return d && Object.keys(d).length; });
-  if(!oQueVai.length){ toast('Não há nada para mover', 'am'); return; }
+  if(!temNaOrigem.length){ toast('Não há nada para mover', 'am'); return; }
 
-  // O choque é por coleção, não pelo mês inteiro: se o destino tem folha
-  // realizada mas não tem fechamento, mover só o fechamento pra lá é seguro.
-  // Nunca sobrescreve nada que já exista.
-  const choca = oQueVai.filter(col=>{
+  // Vai coleção por coleção: o que o destino não tem, vai; o que ele já tem,
+  // fica onde está. Nunca sobrescreve nada. Sem isso, a tabela de metas —
+  // que existe em todo mês — travaria a fila inteira para sempre.
+  const oQueVai = temNaOrigem.filter(col=>{
     const d = fsLer(col.id, idDestino);
-    return d && Object.keys(d).length;
-  }).map(col=>col.rot);
-  if(choca.length){
-    alert(`Não mexi em nada.\n\n${refRotulo(anoDestino, mesDestino)} já tem: ${choca.join(', ')}.\n\nResolva esse mês primeiro — comece sempre pelo mais antigo da lista.`);
+    return !(d && Object.keys(d).length);
+  });
+  const oQueFica = temNaOrigem.filter(col => !oQueVai.includes(col));
+
+  if(!oQueVai.length){
+    alert(`Não mexi em nada.\n\n${refRotulo(anoDestino, mesDestino)} já tem tudo que ${refRotulo(origem.ano, origem.mes)} tem: ${oQueFica.map(c=>c.rot).join(', ')}.\n\nResolva esse mês primeiro.`);
     return;
   }
 
   const ok = confirm(
     `Mover de ${refRotulo(origem.ano, origem.mes).toUpperCase()} para ${refRotulo(anoDestino, mesDestino).toUpperCase()}?\n\n` +
-    `Vai junto: ${oQueVai.map(c=>c.rot).join(', ')}.\n\n` +
-    `Os números não mudam — só mudam de mês. Dá pra voltar com o backup.`
+    `Vai: ${oQueVai.map(c=>c.rot).join(', ')}.` +
+    (oQueFica.length
+      ? `\n\nFica em ${refRotulo(origem.ano, origem.mes)}: ${oQueFica.map(c=>c.rot).join(', ')} — ${refRotulo(anoDestino, mesDestino)} já tem ${oQueFica.length > 1 ? 'esses' : 'esse'}, e eu não sobrescrevo nada.`
+      : '') +
+    `\n\nOs números não mudam — só mudam de mês. Dá pra voltar com o backup.`
   );
   if(!ok) return;
 
@@ -6064,7 +6069,9 @@ function reencaixarMes(idOrigem, anoDestino, mesDestino){
   }
   copiados.forEach(colId => fsApagar(colId, idOrigem));
 
-  toast(`Movido para ${refRotulo(anoDestino, mesDestino)}`, 'ok');
+  toast(oQueFica.length
+    ? `Movido para ${refRotulo(anoDestino, mesDestino)} — ${oQueFica.map(c=>c.rot.toLowerCase()).join(', ')} ficou onde estava`
+    : `Movido para ${refRotulo(anoDestino, mesDestino)}`, 'ok');
   renderModalRef();
   atualizarMesUI();
   carregarMesAtual();
@@ -6295,6 +6302,14 @@ function planejarConserto(diag){
       return;
     }
 
+    // Mês que só tem metas, folha ou horas, sem fechamento de vendas: não há
+    // o que identificar nem mover. Não é problema — é o mês do calendário.
+    if(!colecoesCom(d.id).includes('fechamentos')){
+      const oQueTem = colecoesCom(d.id).map(cid => (COLECOES_MENSAIS.find(c=>c.id===cid)||{}).rot || cid);
+      plano[d.id] = {estado:'semFechamento',
+        motivo: oQueTem.length ? `só ${oQueTem.join(', ')} — não há fechamento de vendas aqui` : 'vazio'};
+      return;
+    }
     plano[d.id] = {estado:'conferir', motivo:(per && per.motivo) || 'sem data guardada no relatório'};
   });
 
@@ -6311,10 +6326,16 @@ function planejarConserto(diag){
       const pl = plano[d.id];
       if(pl.estado !== 'pendente') return;
       const idDestino = refMontaId(pl.para.ano, pl.para.mes);
-      const vai = colecoesCom(d.id);
-      if(vai.some(cid => ocupado[cid].has(idDestino))) return;  // choca; tenta na próxima volta
+      const tem = colecoesCom(d.id);
+      // O que decide é o FECHAMENTO: é ele que está no mês errado. As outras
+      // coleções vão junto quando cabem e ficam quando o destino já tem — a
+      // tabela de metas existe em todo mês e travaria a fila para sempre.
+      if(tem.includes('fechamentos') && ocupado['fechamentos'].has(idDestino)) return;
+      const vai = tem.filter(cid => !ocupado[cid].has(idDestino));
+      if(!vai.length) return;
       pl.estado = 'mover';
-      pl.ordem = ++ordemMov;      // posição na fila de execução
+      pl.ordem = ++ordemMov;
+      pl.fica = tem.filter(cid => !vai.includes(cid));
       vai.forEach(cid=>{ ocupado[cid].delete(d.id); ocupado[cid].add(idDestino); });
       mudou = true;
     });
@@ -6329,12 +6350,19 @@ function planejarConserto(diag){
     const estadoDeLa = quemEsta ? plano[quemEsta.id].estado : null;
     const chocaCom = colecoesCom(d.id).filter(cid => ocupado[cid].has(idDestino));
 
+    const rot = cid => (COLECOES_MENSAIS.find(c=>c.id===cid) || {}).rot || cid;
+    if(chocaCom.length && !chocaCom.includes('fechamentos') && estadoDeLa !== 'manter'){
+      // Nada a ver com fechamento: só coleções auxiliares no caminho
+      pl.estado = 'aguardando';
+      pl.motivo = `${refRotulo(refParseId(idDestino).ano, refParseId(idDestino).mes)} já tem ${chocaCom.map(rot).join(', ')}`;
+      return;
+    }
     if(estadoDeLa === 'manter'){
       pl.estado = 'conflito';
       pl.motivo = `este relatório diz ser de ${refRotulo(pl.para.ano, pl.para.mes)}, mas lá já existe outro relatório, com números diferentes, que também confere com aquele mês. Confira no sistema de vendas qual dos dois é o de ${refRotulo(pl.para.ano, pl.para.mes)}.`;
     } else {
       pl.estado = 'aguardando';
-      pl.motivo = `esperando ${refRotulo(refParseId(idDestino).ano, refParseId(idDestino).mes)} sair do lugar primeiro`;
+      pl.motivo = `esperando o fechamento de ${refRotulo(refParseId(idDestino).ano, refParseId(idDestino).mes)} sair do lugar primeiro`;
     }
   });
 
@@ -6433,9 +6461,10 @@ function blocoPlanoHTML(diag, plano){
       .sort((a,b)=> (plano[a.id].ordem||99) - (plano[b.id].ordem||99))
       .forEach(d=>{
         const pl = plano[d.id], o = refParseId(d.id);
+        const fica = (pl.fica || []).map(cid => (COLECOES_MENSAIS.find(c=>c.id===cid)||{}).rot || cid);
         passos.push({tipo:'mover',
           texto:`Mover <strong>${refRotulo(o.ano,o.mes)}</strong> para <strong>${refRotulo(pl.para.ano, pl.para.mes)}</strong>`,
-          detalhe: pl.motivo,
+          detalhe: pl.motivo + (fica.length ? ` · fica em ${refRotulo(o.ano,o.mes)}: ${fica.join(', ')}, porque ${refRotulo(pl.para.ano, pl.para.mes)} já tem` : ''),
           botao:`<button class="cat-rm" onclick="reencaixarMes('${d.id}', ${pl.para.ano}, ${pl.para.mes})">Mover</button>`});
       });
 
@@ -6499,7 +6528,7 @@ function renderModalRef(){
   }
 
   const plano = planejarConserto(diag);
-  const conta = {manter:0, limpar:0, mover:0, conflito:0, aguardando:0, conferir:0};
+  const conta = {manter:0, limpar:0, mover:0, conflito:0, aguardando:0, conferir:0, semFechamento:0};
   const linhas = diag.map(d=>{
     const o = refParseId(d.id);
     const per = d.pericia;
@@ -6512,7 +6541,8 @@ function renderModalRef(){
       mover:     '<span class="ref-pista">→ MOVER</span>',
       conflito:  '<span class="ref-mal">! CONFLITO</span>',
       aguardando:'<span class="ref-dunno">⏳ AGUARDANDO</span>',
-      conferir:  '<span class="ref-dunno">? CONFERIR</span>'
+      conferir:  '<span class="ref-dunno">? CONFERIR</span>',
+      semFechamento: '<span class="ref-dunno">— sem fechamento</span>'
     };
     let situacao = `${SELO[c.estado]}<div class="ref-fonte">${escHtml(c.motivo)}</div>`;
 

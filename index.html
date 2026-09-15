@@ -4364,12 +4364,13 @@ function lerFuncFixo(nome){
   return {
     salario: Number(r.salario || 0),
     vale:    Number(r.vale || 0),
-    horas:   Number(r.horas || 0)
+    horas:   Number(r.horas || 0),
+    bonus:   Number(r.bonus || 0)   // esporádico — só em mês que houver
   };
 }
 function salvarFuncFixo(nome, campo, valor){
   const obj = lerEquipeFixa();
-  const atual = obj[nome] || {salario:0, vale:0, horas:0};
+  const atual = obj[nome] || {salario:0, vale:0, horas:0, bonus:0};
   atual[campo] = valor;
   // Se zerou tudo, remove o registro pra não poluir
   if(!atual.salario && !atual.vale && !atual.horas){
@@ -4380,9 +4381,10 @@ function salvarFuncFixo(nome, campo, valor){
   fsSalvar('equipeFixa', idFixa(), obj);
 }
 function totalFuncFixo(nome){
-  // Total a pagar = salário fixo − adiantamento (horas extras não entram — contabilidade calcula)
+  // Total a pagar = salário fixo + bônus − adiantamento
+  // (horas extras não entram — contabilidade calcula)
   const f = lerFuncFixo(nome);
-  return (f.salario || 0) - lerAdiantamento(nome);
+  return (f.salario || 0) + (f.bonus || 0) - lerAdiantamento(nome);
 }
 function atualizarFuncFixo(nome, campo, valorRaw){
   const v = parseNumBR(valorRaw);
@@ -4492,7 +4494,17 @@ function renderEquipeFixa(){
                    oninput="atualizarAdiantamento('${e.nome}', this.value)">
           </div>
         </div>
-        <div class="fx-field fx-field-full">
+        <div class="fx-field">
+          <div class="fx-flbl">Bônus <span class="fx-nota">(esporádico · em branco = não houve)</span></div>
+          <div class="fx-input-wrap">
+            <span class="fx-prefixo">R$</span>
+            <input type="text" class="fx-input" inputmode="decimal"
+                   value="${f.bonus > 0 ? formatarNum(f.bonus) : ''}"
+                   placeholder="0,00"
+                   oninput="atualizarFuncFixo('${e.nome}', 'bonus', this.value)">
+          </div>
+        </div>
+        <div class="fx-field">
           <div class="fx-flbl">Horas Extras <span class="fx-nota">(contabilidade calcula)</span></div>
           <div class="fx-input-wrap">
             <input type="text" class="fx-input" inputmode="decimal"
@@ -7514,11 +7526,13 @@ function exportarExcel(){
   EQUIPE_FIXA.forEach(e=>{
     const fx = lerFuncFixo(e.nome);
     const adiant = lerAdiantamento(e.nome);
-    const total = (fx.salario || 0) - adiant;
-    folhaArr.push([e.nome, e.cargo, '', fx.salario || 0, fx.horas || 0, adiant, '', total]);
+    const bonus = fx.bonus || 0;
+    const total = (fx.salario || 0) + bonus - adiant;
+    folhaArr.push([e.nome, e.cargo, '', fx.salario || 0, fx.horas || 0, adiant, bonus, total]);
     somaSalario += fx.salario || 0;
     somaHoras += fx.horas || 0;
     somaAdiant += adiant;
+    somaBonus += bonus;
     somaTotal += total;
   });
   folhaArr.push([]);

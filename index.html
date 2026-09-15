@@ -2106,22 +2106,12 @@ col.hv-c-acum{width:8.6%;} col.hv-c-ok{width:5.6%;}
 </div>
 
 <div class="modal-overlay" id="modal-ref" onclick="if(event.target===this)fecharModalRef()">
-  <div class="modal" style="max-width:780px;">
-    <h2>Mês de Referência</h2>
-    <div class="sub">Conferir e corrigir em que mês cada fechamento está guardado</div>
-    <div id="ref-corpo"><!-- preenchido via JS --></div>
-    <div class="modal-acoes">
-      <button class="bup" onclick="fecharModalRef()">Fechar</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="modal-ref" onclick="if(event.target===this)fecharModalRef()">
   <div class="modal" style="max-width:860px;">
     <h2>Conferir Mês de Referência</h2>
     <div class="sub">Descobre em que mês cada fechamento realmente é</div>
     <div id="ref-corpo"></div>
     <div class="modal-acoes">
+      <button class="bup" onclick="refBaixarBackup()">↓ Backup</button>
       <button class="bup" onclick="fecharModalRef()">Fechar</button>
     </div>
   </div>
@@ -6005,11 +5995,12 @@ function refBaixarBackup(){
   a.download = `loretto-backup-${new Date().toISOString().slice(0,10)}.json`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
-  REF_BACKUP_FEITO = true;
   toast('Backup baixado — guarde esse arquivo', 'ok');
-  renderModalRef();
 }
-let REF_BACKUP_FEITO = false;
+// O backup deixou de ser exigido a cada sessão — já foi baixado, e pedir de
+// novo a cada abertura só atrapalhava. O botão continua no rodapé pra quem
+// quiser tirar uma cópia antes de mexer.
+let REF_BACKUP_FEITO = true;
 
 // Reencaixa UM mês no lugar certo. Um de cada vez, com confirmação própria:
 // é dinheiro de gente, não vale a pena fazer em lote no escuro.
@@ -6121,7 +6112,6 @@ function avisarMesesForaDeLugar(){
 }
 
 function abrirModalRef(){
-  REF_BACKUP_FEITO = false;
   renderModalRef();
   document.getElementById('modal-ref').classList.add('open');
 }
@@ -6512,7 +6502,6 @@ function blocoPlanoHTML(diag, plano){
   return `<div class="ref-passo">
     <h3>Plano de execução</h3>
     <p>Faça <strong>de cima para baixo</strong> — cada passo libera o lugar do seguinte. A lista se refaz sozinha a cada ação, então o próximo passo é sempre o primeiro da lista.</p>
-    ${REF_BACKUP_FEITO ? '' : '<div class="ref-alerta">Baixe o backup primeiro (logo abaixo). Os botões só liberam depois disso.</div>'}
     ${linhas}
   </div>`;
 }
@@ -6619,13 +6608,6 @@ function renderModalRef(){
         <thead><tr><th>Guardado em</th><th class="tnum">Itens</th><th class="tnum">Vendas</th><th class="tnum">Valor</th><th>Situação</th><th>Mover para</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table>
-    </div>
-
-    <div class="ref-passo">
-      <h3>2. Backup — obrigatório antes de mover</h3>
-      <p>Baixa tudo que está guardado hoje num arquivo. É com ele que a gente volta atrás se algo sair errado.</p>
-      <button class="bup" onclick="refBaixarBackup()">↓ Baixar backup completo</button>
-      ${REF_BACKUP_FEITO ? '<div class="ref-alerta ok" style="margin:12px 0 0;">✓ Backup baixado. Agora os botões de mover estão liberados.</div>' : '<div class="ref-alerta" style="margin:12px 0 0;">Os botões de mover ficam bloqueados até você baixar o backup.</div>'}
     </div>`;
 }
 

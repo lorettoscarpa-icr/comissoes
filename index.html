@@ -2791,8 +2791,11 @@ function lerDataCelula(bruto){
   return null;
 }
 
-// Recebe a contagem de vendas por mês e devolve o mês dominante do arquivo
-function mesDominante(contagem){
+// Recebe a contagem de vendas por mês e devolve o período do arquivo.
+// Guarda também a primeira e a última data de venda e como as vendas se
+// espalham pelos meses: é essa a prova que permite auditar depois de que mês
+// o relatório era, sem depender do arquivo original (que não fica salvo).
+function mesDominante(contagem, extremos){
   const chaves = Object.keys(contagem);
   if(!chaves.length) return null;
   let total = 0, melhor = null, melhorQtd = 0;
@@ -2801,7 +2804,19 @@ function mesDominante(contagem){
     if(contagem[k] > melhorQtd){ melhorQtd = contagem[k]; melhor = k; }
   });
   const [ano, mes] = melhor.split('-').map(Number);
-  return {ano, mes, linhas: melhorQtd, total, pct: melhorQtd / total};
+
+  // Quantas vendas caíram em cada mês, do maior pro menor
+  const porMes = chaves.map(k=>{
+    const [a, m] = k.split('-').map(Number);
+    return {ano:a, mes:m, vendas:contagem[k]};
+  }).sort((x,y)=> y.vendas - x.vendas);
+
+  const r = {ano, mes, linhas: melhorQtd, total, pct: melhorQtd / total, porMes};
+  if(extremos && extremos.min && extremos.max){
+    r.primeiraVenda = extremos.min.toISOString().slice(0,10);
+    r.ultimaVenda   = extremos.max.toISOString().slice(0,10);
+  }
+  return r;
 }
 
 // Classifica produto por descrição.
@@ -3154,6 +3169,7 @@ function processarFormatoKigi(linhas, blocos){
   const semCategoriaItens = new Set();
   const vendedorasNaoListadas = new Map();
   const contagemMesArquivo = {};   // 'ano-mes' -> nº de vendas, pra achar o mês de referência
+  const extremosData = {min:null, max:null};   // primeira e última venda do arquivo
 
   // Auditoria
   const auditoria = {
@@ -3314,6 +3330,8 @@ function processarFormatoKigi(linhas, blocos){
           dia = dt.getDate();
           const chaveMes = `${dt.getFullYear()}-${dt.getMonth()}`;
           contagemMesArquivo[chaveMes] = (contagemMesArquivo[chaveMes] || 0) + 1;
+          if(!extremosData.min || dt < extremosData.min) extremosData.min = dt;
+          if(!extremosData.max || dt > extremosData.max) extremosData.max = dt;
         }
         if(dia && dia >= 1 && dia <= 31){
           if(!result[vend]._porDia[dia]){
@@ -3500,7 +3518,7 @@ function processarFormatoKigi(linhas, blocos){
   RESULTADO = {
     result, totalGeralValor, totalGeralPecas, totalVendas,
     excluidos, semVendedora, semCategoria, auditoria,
-    refArquivo: mesDominante(contagemMesArquivo)
+    refArquivo: mesDominante(contagemMesArquivo, extremosData)
   };
 
   renderizar();
@@ -6174,7 +6192,22 @@ function blocoEvidencia(id){
     .filter(c=>c.valido)
     .map(c=>`${MESES[c.mes].slice(0,3)}: ${c.vendasEmDomingo}`)
     .join(' · ');
+  // Intervalo real de vendas, quando o fechamento foi processado com a versão
+  // que guarda isso. É a prova mais direta: diz o primeiro e o último dia.
+  const dados = fsLer('fechamentos', id) || {};
+  const ref = dados.refArquivo || {};
+  let intervalo = '';
+  if(ref.primeiraVenda && ref.ultimaVenda){
+    const br = iso => iso.split('-').reverse().join('/');
+    intervalo = `<div><strong>Vendas do arquivo:</strong> de ${br(ref.primeiraVenda)} a ${br(ref.ultimaVenda)}`;
+    if(Array.isArray(ref.porMes) && ref.porMes.length > 1){
+      intervalo += ` <span style="opacity:.7">— ${ref.porMes.map(m=>`${MESES[m.mes].slice(0,3)}: ${m.vendas}`).join(' · ')}</span>`;
+    }
+    intervalo += '</div>';
+  }
+
   return `<div class="ref-prova-inline">
+    ${intervalo}
     <div><strong>Data guardada:</strong> ${e.rotData ? escHtml(e.rotData) + ` <span style="opacity:.7">(${escHtml(e.fonteData || '')})</span>` : 'não tem'}</div>
     <div><strong>Calendário dos dias:</strong> ${e.rotCal ? escHtml(e.rotCal) : 'não concluiu'}${notas ? ` <span style="opacity:.7">— domingos com venda por mês testado: ${notas}</span>` : ''}</div>
     <div class="${cls}" style="margin-top:4px;">${escHtml(e.veredito.texto)}</div>
